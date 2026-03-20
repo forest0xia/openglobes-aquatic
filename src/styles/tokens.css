@@ -265,6 +265,9 @@
   mix-blend-mode: screen;  /* makes dark backgrounds invisible, light parts glow */
 }
 
+/* --- Hide scrollbar for gallery ------------------------------------ */
+.og-gallery-scroll::-webkit-scrollbar { display: none; }
+
 /* --- Drag handle (mobile bottom sheets) ---------------------------- */
 .og-drag-handle {
   display: block;

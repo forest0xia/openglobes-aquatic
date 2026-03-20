@@ -103,27 +103,32 @@ export function FishGlobe() {
   const updateCameraRef = useRef(spatial.updateCamera);
   updateCameraRef.current = spatial.updateCamera;
   const lastDistRef = useRef(0);
+  const lastLatRef = useRef<number | null>(null);
+  const lastLngRef = useRef<number | null>(null);
   const throttleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const handleCameraChange = useCallback(
     (distance: number) => {
+      const cam = sceneRefsRef.current?.camera;
+      let centerLat = 0;
+      let centerLng = 0;
+      if (cam) {
+        const { x, y, z } = cam.position;
+        const r = Math.sqrt(x * x + y * y + z * z);
+        centerLat = Math.asin(y / r) * (180 / Math.PI);
+        centerLng = Math.atan2(x, z) * (180 / Math.PI);
+      }
+
+      // Trigger reload if distance OR look-at position changed
       const distChanged = Math.abs(distance - lastDistRef.current) > 0.5;
-      if (distChanged || lastDistRef.current === 0) {
+      const latChanged = Math.abs(centerLat - (lastLatRef.current ?? 0)) > 2;
+      const lngChanged = Math.abs(centerLng - (lastLngRef.current ?? 0)) > 2;
+
+      if (distChanged || latChanged || lngChanged || lastDistRef.current === 0) {
         lastDistRef.current = distance;
+        lastLatRef.current = centerLat;
+        lastLngRef.current = centerLng;
 
-        // Always calculate bounds from where the camera is actually looking.
-        // Only load tiles for the visible hemisphere — never the far side.
-        const cam = sceneRefsRef.current?.camera;
-        let centerLat = 0;
-        let centerLng = 0;
-        if (cam) {
-          const { x, y, z } = cam.position;
-          const r = Math.sqrt(x * x + y * y + z * z);
-          centerLat = Math.asin(y / r) * (180 / Math.PI);
-          centerLng = Math.atan2(x, z) * (180 / Math.PI);
-        }
-
-        // Visible arc: how many degrees of the globe surface the camera can see
         const halfArc = Math.asin(Math.min(1, 100 / distance)) * (180 / Math.PI);
         const bounds = {
           north: Math.min(85, centerLat + halfArc),
@@ -310,9 +315,27 @@ export function FishGlobe() {
               Filters
             </span>
             <span className="og-mono-sm" style={{ color: 'var(--og-accent)' }}>
-              {totalSpeciesCount.toLocaleString()}
+              {totalSpeciesCount.toLocaleString()} in view
             </span>
           </div>
+
+          {/* Active filter summary */}
+          {(() => {
+            const wt = filterValues.waterType;
+            const wtLabel = !Array.isArray(wt) || wt.length === 0
+              ? 'All types'
+              : (wt as string[]).map(w => w === 'Saltwater' ? 'SW' : w === 'Freshwater' ? 'FW' : 'BW').join(', ');
+            return (
+              <div style={{
+                fontFamily: 'var(--og-font-mono)',
+                fontSize: 10,
+                color: 'var(--og-text-tertiary)',
+                marginBottom: 8,
+              }}>
+                Water: {wtLabel}
+              </div>
+            );
+          })()}
 
           {/* Water type + depth via FilterPanel */}
           <FilterPanel
@@ -516,9 +539,27 @@ export function FishGlobe() {
               Filters
             </span>
             <span className="og-mono-sm" style={{ color: 'var(--og-accent)' }}>
-              {totalSpeciesCount.toLocaleString()}
+              {totalSpeciesCount.toLocaleString()} in view
             </span>
           </div>
+
+          {/* Active filter summary */}
+          {(() => {
+            const wt = filterValues.waterType;
+            const wtLabel = !Array.isArray(wt) || wt.length === 0
+              ? 'All types'
+              : (wt as string[]).map(w => w === 'Saltwater' ? 'SW' : w === 'Freshwater' ? 'FW' : 'BW').join(', ');
+            return (
+              <div style={{
+                fontFamily: 'var(--og-font-mono)',
+                fontSize: 10,
+                color: 'var(--og-text-tertiary)',
+                marginBottom: 8,
+              }}>
+                Water: {wtLabel}
+              </div>
+            );
+          })()}
 
           <FilterPanel
             theme={coreTheme}

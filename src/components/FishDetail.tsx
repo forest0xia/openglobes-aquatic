@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import type { PointItem } from '@openglobes/core';
 import { SCHOOLING_SPECIES } from '../data/schooling';
 // DepthStrip removed — user found it confusing
@@ -72,10 +72,7 @@ export function FishDetail({ point, onClose }: FishDetailProps) {
   const [detail, setDetail] = useState<SpeciesDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [showSizeComp, setShowSizeComp] = useState(false);
-  const [imgIdx, setImgIdx] = useState(0);
-
-  // Reset image index on species change
-  useEffect(() => { setImgIdx(0); }, [point.id]);
+  const galleryRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setLoading(true);
@@ -141,7 +138,36 @@ export function FishDetail({ point, onClose }: FishDetailProps) {
         />
       </div>
 
-      <div style={{ padding: 20 }}>
+      <div style={{ padding: 20, position: 'relative' }}>
+        {/* Close button */}
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close"
+          style={{
+            position: 'absolute',
+            top: 12,
+            right: 12,
+            width: 28,
+            height: 28,
+            borderRadius: 'var(--og-radius-sm)',
+            border: 'none',
+            background: 'transparent',
+            color: 'var(--og-text-tertiary)',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: 16,
+            transition: 'color var(--og-transition-fast)',
+            zIndex: 1,
+          }}
+          onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--og-text-primary)')}
+          onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--og-text-tertiary)')}
+        >
+          ×
+        </button>
+
         {/* Header row */}
         <div
           style={{
@@ -240,124 +266,122 @@ export function FishDetail({ point, onClose }: FishDetailProps) {
           </div>
         )}
 
-        {/* Image gallery */}
-        <div
-          style={{
-            width: '100%',
-            height: 140,
-            borderRadius: 'var(--og-radius-md)',
-            background: 'linear-gradient(135deg, rgba(8,20,40,0.8), rgba(5,12,25,0.9))',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            marginBottom: 16,
-            border: '1px solid rgba(100,160,255,0.05)',
-            position: 'relative',
-            overflow: 'hidden',
-          }}
-        >
-          {detail && detail.images && detail.images.length > 0 ? (
-            <>
-              <img
-                src={detail.images[imgIdx]?.image ?? detail.images[0].image}
-                alt={point.name}
+        {/* Image gallery — horizontal scroll strip */}
+        {detail && detail.images && detail.images.length > 0 && (
+          <div style={{ marginBottom: 16, position: 'relative' }}>
+            <div
+              ref={galleryRef}
+              className="og-gallery-scroll"
+              style={{
+                display: 'flex',
+                gap: 8,
+                overflowX: 'auto',
+                scrollBehavior: 'smooth',
+                scrollbarWidth: 'none', // Firefox
+                msOverflowStyle: 'none', // IE
+                borderRadius: 'var(--og-radius-md)',
+                padding: '4px 0',
+              }}
+            >
+              {detail.images.map((img, i) => (
+                <img
+                  key={i}
+                  src={img.image}
+                  alt={`${point.name} ${i + 1}`}
+                  loading="lazy"
+                  style={{
+                    width: detail.images.length === 1 ? '100%' : 200,
+                    height: 140,
+                    objectFit: 'contain',
+                    mixBlendMode: 'screen',
+                    borderRadius: 'var(--og-radius-md)',
+                    background: 'linear-gradient(135deg, rgba(8,20,40,0.8), rgba(5,12,25,0.9))',
+                    border: '1px solid rgba(100,160,255,0.05)',
+                    flexShrink: 0,
+                  }}
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).style.display = 'none';
+                  }}
+                />
+              ))}
+            </div>
+
+            {/* Left scroll button */}
+            {detail.images.length > 1 && (
+              <button
+                type="button"
+                onClick={() => galleryRef.current?.scrollBy({ left: -210, behavior: 'smooth' })}
                 style={{
-                  width: '100%',
-                  height: '100%',
-                  objectFit: 'contain',
-                  mixBlendMode: 'screen',
+                  position: 'absolute',
+                  left: 0,
+                  top: 0,
+                  bottom: 0,
+                  width: 28,
+                  background: 'linear-gradient(90deg, rgba(5,10,18,0.8), transparent)',
+                  border: 'none',
+                  color: '#fff',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: 14,
+                  opacity: 0.7,
+                  borderRadius: 'var(--og-radius-md) 0 0 var(--og-radius-md)',
                 }}
-                onError={(e) => {
-                  (e.target as HTMLImageElement).style.display = 'none';
+                aria-label="Scroll left"
+              >
+                ‹
+              </button>
+            )}
+
+            {/* Right scroll button */}
+            {detail.images.length > 1 && (
+              <button
+                type="button"
+                onClick={() => galleryRef.current?.scrollBy({ left: 210, behavior: 'smooth' })}
+                style={{
+                  position: 'absolute',
+                  right: 0,
+                  top: 0,
+                  bottom: 0,
+                  width: 28,
+                  background: 'linear-gradient(270deg, rgba(5,10,18,0.8), transparent)',
+                  border: 'none',
+                  color: '#fff',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: 14,
+                  opacity: 0.7,
+                  borderRadius: '0 var(--og-radius-md) var(--og-radius-md) 0',
                 }}
-              />
-              {detail.images.length > 1 && (
-                <>
-                  {/* Prev arrow */}
-                  <button
-                    type="button"
-                    onClick={() => setImgIdx((i) => (i - 1 + detail.images.length) % detail.images.length)}
-                    style={{
-                      position: 'absolute',
-                      left: 4,
-                      top: '50%',
-                      transform: 'translateY(-50%)',
-                      background: 'rgba(0,0,0,0.5)',
-                      border: 'none',
-                      color: '#fff',
-                      borderRadius: '50%',
-                      width: 22,
-                      height: 22,
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      fontSize: 12,
-                      padding: 0,
-                    }}
-                    aria-label="Previous image"
-                  >
-                    ‹
-                  </button>
-                  {/* Next arrow */}
-                  <button
-                    type="button"
-                    onClick={() => setImgIdx((i) => (i + 1) % detail.images.length)}
-                    style={{
-                      position: 'absolute',
-                      right: 4,
-                      top: '50%',
-                      transform: 'translateY(-50%)',
-                      background: 'rgba(0,0,0,0.5)',
-                      border: 'none',
-                      color: '#fff',
-                      borderRadius: '50%',
-                      width: 22,
-                      height: 22,
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      fontSize: 12,
-                      padding: 0,
-                    }}
-                    aria-label="Next image"
-                  >
-                    ›
-                  </button>
-                  {/* Dot indicators */}
-                  <div
-                    style={{
-                      position: 'absolute',
-                      bottom: 6,
-                      left: '50%',
-                      transform: 'translateX(-50%)',
-                      display: 'flex',
-                      gap: 4,
-                    }}
-                  >
-                    {detail.images.map((_, i) => (
-                      <span
-                        key={i}
-                        onClick={() => setImgIdx(i)}
-                        style={{
-                          width: 6,
-                          height: 6,
-                          borderRadius: '50%',
-                          background: i === imgIdx ? '#fff' : 'rgba(255,255,255,0.35)',
-                          cursor: 'pointer',
-                          transition: 'background 200ms',
-                        }}
-                      />
-                    ))}
-                  </div>
-                </>
-              )}
-            </>
-          ) : (
-            <span style={{ fontSize: 32, opacity: 0.15 }}>🐟</span>
-          )}
-        </div>
+                aria-label="Scroll right"
+              >
+                ›
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* No images fallback */}
+        {detail && (!detail.images || detail.images.length === 0) && (
+          <div
+            style={{
+              width: '100%',
+              height: 80,
+              borderRadius: 'var(--og-radius-md)',
+              background: 'linear-gradient(135deg, rgba(8,20,40,0.8), rgba(5,12,25,0.9))',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              marginBottom: 16,
+              border: '1px solid rgba(100,160,255,0.05)',
+            }}
+          >
+            <span style={{ fontSize: 24, opacity: 0.15 }}>🐟</span>
+          </div>
+        )}
 
         {/* Loading state */}
         {loading && (
