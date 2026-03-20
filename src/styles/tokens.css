@@ -275,6 +275,15 @@
 /* --- Hide scrollbar for gallery ------------------------------------ */
 .og-gallery-scroll::-webkit-scrollbar { display: none; }
 
+/* --- Hide core FilterPanel's own "Filters" header + glass wrapper -- */
+/* We provide our own wrapper (#og-filters), so hide the core's.      */
+#og-filters .og-sidebar { background: none; border: none; box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; }
+#og-filters .og-sidebar-header { display: none; }
+
+/* --- Arc elevation override: keep arcs on globe surface ------------ */
+/* Handled via arcConfig prop, but this ensures three-globe arcs      */
+/* stay near the surface visually.                                    */
+
 /* --- Drag handle (mobile bottom sheets) ---------------------------- */
 .og-drag-handle {
   display: block;

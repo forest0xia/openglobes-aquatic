@@ -120,14 +120,16 @@ export function FishGlobe() {
     filters: filterValues,
   });
 
-  // ── Camera throttle fix ──────────────────────────────────────────────
-  // Always schedule a trailing update — useSpatialIndex's own
-  // lastFetchKey check prevents duplicate fetches internally.
-  // The 300ms trailing setTimeout ensures tiles load after any camera
-  // movement settles.
+  // ── Camera throttle ─────────────────────────────────────────────────
+  // The animation loop fires handleCameraChange every frame (~60fps).
+  // useSpatialIndex internally debounces at 150ms, so we must NOT
+  // only use a trailing setTimeout (it gets perpetually reset by
+  // the next frame and never fires). Instead: call immediately when
+  // camera moves significantly, PLUS a trailing call for settling.
   const updateCameraRef = useRef(spatial.updateCamera);
   updateCameraRef.current = spatial.updateCamera;
   const throttleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastCamRef = useRef({ dist: 0, lat: 0, lng: 0 });
 
   const handleCameraChange = useCallback(
     (distance: number) => {
@@ -149,11 +151,24 @@ export function FishGlobe() {
         west: Math.max(-180, centerLng - halfArc),
       };
 
-      // Always schedule a trailing update
+      // Check if camera moved enough to warrant an immediate call
+      const prev = lastCamRef.current;
+      const moved = prev.dist === 0
+        || Math.abs(distance - prev.dist) > 0.5
+        || Math.abs(centerLat - prev.lat) > 0.3
+        || Math.abs(centerLng - prev.lng) > 0.3;
+
+      if (moved) {
+        lastCamRef.current = { dist: distance, lat: centerLat, lng: centerLng };
+        // Immediate call — useSpatialIndex debounces internally
+        updateCameraRef.current(distance, bounds);
+      }
+
+      // Trailing call to catch the final position after rotation stops
       if (throttleRef.current) clearTimeout(throttleRef.current);
       throttleRef.current = setTimeout(() => {
         updateCameraRef.current(distance, bounds);
-      }, 300);
+      }, 250);
     },
     [],
   );
@@ -262,7 +277,7 @@ export function FishGlobe() {
         theme={theme.globeTheme}
         points={displayPoints}
         arcs={showMigrations ? MIGRATION_ARCS : []}
-        arcConfig={{ elevation: 0.03 }}
+        arcConfig={{ elevation: 0.01 }}
         trails={showCurrents ? OCEAN_CURRENTS : []}
         onPointClick={handlePointClick}
         onCameraChange={handleCameraChange}
@@ -471,11 +486,11 @@ export function FishGlobe() {
           {/* Labels section */}
           <div style={{ marginTop: 16 }}>
             <div className="og-section-label">Labels</div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
               {[
                 { type: 'ocean', label: 'Oceans' },
                 { type: 'sea', label: 'Seas' },
-                { type: 'continent', label: 'Continents' },
+                { type: 'continent', label: 'Land' },
                 { type: 'island', label: 'Islands' },
               ].map(lt => (
                 <button
@@ -690,11 +705,11 @@ export function FishGlobe() {
           {/* Labels section (mobile) */}
           <div style={{ marginTop: 16 }}>
             <div className="og-section-label">Labels</div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
               {[
                 { type: 'ocean', label: 'Oceans' },
                 { type: 'sea', label: 'Seas' },
-                { type: 'continent', label: 'Continents' },
+                { type: 'continent', label: 'Land' },
                 { type: 'island', label: 'Islands' },
               ].map(lt => (
                 <button
@@ -732,17 +747,18 @@ export function FishGlobe() {
           items={listPanel.items}
           onClose={() => setListPanel(null)}
           onItemClick={(id) => {
-            const found = allPointsRef.current.find(p => p.id === id);
+            // Try exact ID match first, then name match
+            const found = allPointsRef.current.find(p => p.id === id)
+              || allPointsRef.current.find(p =>
+                p.name.toLowerCase().includes(id.toLowerCase())
+                || id.toLowerCase().includes(p.name.toLowerCase())
+              );
             if (found) {
               setSelectedPoint(found);
               setListPanel(null);
               if (sceneRefsRef.current) {
                 flyTo(sceneRefsRef.current, found.lat, found.lng, { duration: 1500 });
               }
-            } else {
-              // Species not in loaded tiles — just show its detail by fetching directly
-              setSelectedPoint({ id, lat: 0, lng: 0, name: 'Loading...' } as PointItem);
-              setListPanel(null);
             }
           }}
         />
