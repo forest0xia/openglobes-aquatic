@@ -3,6 +3,17 @@ import { Globe, FilterPanel, useSpatialIndex } from '@openglobes/core';
 import type { PointItem } from '@openglobes/core';
 import { ThemeContext } from '../themes';
 import { FishDetail } from './FishDetail';
+import SearchBar from './SearchBar';
+import { ZoomControls } from './ZoomControls';
+import { ThemeToggle } from './ThemeToggle';
+
+// Rarity legend config
+const RARITY_ITEMS = [
+  { key: 'common',    label: 'Common',    color: 'var(--og-rarity-common)',    hex: '#48bfe6', glow: false },
+  { key: 'uncommon',  label: 'Uncommon',  color: 'var(--og-rarity-uncommon)',  hex: '#56d6a0', glow: false },
+  { key: 'rare',      label: 'Rare',      color: 'var(--og-rarity-rare)',      hex: '#f9c74f', glow: true  },
+  { key: 'legendary', label: 'Legendary', color: 'var(--og-rarity-legendary)', hex: '#ef476f', glow: true  },
+];
 
 export function FishGlobe() {
   const { theme } = useContext(ThemeContext);
@@ -17,6 +28,9 @@ export function FishGlobe() {
     filters: filterValues,
   });
 
+  // ── Camera throttle fix ──────────────────────────────────────────────
+  // Keep this block EXACTLY as-is. The trailing setTimeout ensures tiles
+  // load after the animation loop settles (debounce-bug workaround).
   const updateCameraRef = useRef(spatial.updateCamera);
   updateCameraRef.current = spatial.updateCamera;
   const lastDistRef = useRef(0);
@@ -44,6 +58,7 @@ export function FishGlobe() {
     },
     [],
   );
+  // ── end camera throttle fix ──────────────────────────────────────────
 
   const handleFilterChange = useCallback((key: string, value: unknown) => {
     setFilterValues((prev) => ({ ...prev, [key]: value }));
@@ -51,12 +66,22 @@ export function FishGlobe() {
 
   const displayPoints = spatial.isClusterZoom ? [] : spatial.points;
 
+  // Pass only waterType + depth to FilterPanel; render rarity as custom legend
+  const coreFilters = theme.globeTheme.filters.filter((f) => f.key !== 'rarity');
+  const coreTheme = { ...theme.globeTheme, filters: coreFilters };
+
   return (
     <div
-      className="relative w-screen h-screen overflow-hidden"
-      style={{ background: 'var(--color-og-void)' }}
+      id="og-app"
+      style={{
+        position: 'relative',
+        width: '100vw',
+        height: '100vh',
+        overflow: 'hidden',
+        background: 'var(--og-bg-void)',
+      }}
     >
-      {/* Globe */}
+      {/* ── Globe ───────────────────────────────────────────────────── */}
       <Globe
         theme={theme.globeTheme}
         points={displayPoints}
@@ -64,123 +89,266 @@ export function FishGlobe() {
         onCameraChange={handleCameraChange}
       />
 
-      {/* Filter toggle (mobile) */}
+      {/* ── Search bar — top-center ──────────────────────────────────── */}
+      <SearchBar totalSpecies={4677} />
+
+      {/* ── Theme toggle — top-right ─────────────────────────────────── */}
+      <ThemeToggle />
+
+      {/* ── Filter panel — desktop: left sidebar / mobile: bottom sheet ─ */}
+      {/* Desktop */}
+      <div
+        id="og-filters"
+        className="og-glass hidden md:block"
+        style={{
+          position: 'absolute',
+          top: 60,
+          left: 16,
+          width: 240,
+          zIndex: 10,
+          animation: 'slideInLeft 400ms cubic-bezier(0.16, 1, 0.3, 1) forwards',
+        }}
+      >
+        <div style={{ padding: '16px 16px 20px' }}>
+          {/* Header row */}
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              marginBottom: 16,
+            }}
+          >
+            <span className="og-section-label" style={{ marginBottom: 0 }}>
+              Filters
+            </span>
+            <span className="og-mono-sm" style={{ color: 'var(--og-accent)' }}>
+              4,677
+            </span>
+          </div>
+
+          {/* Water type + depth via FilterPanel */}
+          <FilterPanel
+            theme={coreTheme}
+            values={filterValues}
+            onChange={handleFilterChange}
+          />
+
+          {/* Rarity legend */}
+          <div style={{ marginTop: 16 }}>
+            <div className="og-section-label">Rarity</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {RARITY_ITEMS.map((r) => (
+                <div
+                  key={r.key}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                  }}
+                >
+                  <span
+                    style={{
+                      width: 8,
+                      height: 8,
+                      borderRadius: '50%',
+                      flexShrink: 0,
+                      background: r.color,
+                      boxShadow: r.glow
+                        ? `0 0 4px ${r.hex}4d`
+                        : undefined,
+                    }}
+                  />
+                  <span
+                    style={{
+                      fontFamily: 'var(--og-font-body)',
+                      fontSize: 12,
+                      color: 'var(--og-text-secondary)',
+                    }}
+                  >
+                    {r.label}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Mobile filter toggle button */}
       <button
         onClick={() => setFiltersOpen(!filtersOpen)}
-        className="og-glass fixed top-4 left-4 z-20 px-4 py-2 text-sm md:hidden"
+        className="og-glass md:hidden"
         style={{
-          fontFamily: 'var(--font-body)',
-          color: 'var(--color-og-text)',
+          position: 'fixed',
+          top: 16,
+          left: 16,
+          zIndex: 20,
+          padding: '8px 16px',
+          fontFamily: 'var(--og-font-body)',
+          color: 'var(--og-text-primary)',
           letterSpacing: '0.05em',
           textTransform: 'uppercase',
-          fontSize: '11px',
+          fontSize: 11,
+          cursor: 'pointer',
+          background: 'transparent',
+          border: 'none',
         }}
       >
         {filtersOpen ? 'Close' : 'Filters'}
       </button>
 
-      {/* Filter panel — desktop: left sidebar 320px, mobile: bottom sheet */}
+      {/* Mobile filter panel — bottom sheet */}
       <div
-        className={`og-glass fixed z-10
-          md:top-4 md:left-4 md:w-80 md:translate-x-0
-          md:animate-[slideInLeft_400ms_cubic-bezier(0.16,1,0.3,1)_forwards]
-          bottom-0 left-0 right-0 md:bottom-auto md:right-auto
-          rounded-t-[var(--og-radius-xl)] md:rounded-[var(--og-radius-lg)]
-          md:max-h-[calc(100vh-2rem)]
-          transition-transform
-          ${filtersOpen ? 'translate-y-0' : 'translate-y-full md:translate-y-0'}
-        `}
-        style={{ '--og-transition-normal': '250ms cubic-bezier(0.16, 1, 0.3, 1)' } as React.CSSProperties}
+        className="og-glass md:hidden"
+        style={{
+          position: 'fixed',
+          bottom: 0,
+          left: 0,
+          right: 0,
+          zIndex: 10,
+          borderRadius: 'var(--og-radius-xl) var(--og-radius-xl) 0 0',
+          transform: filtersOpen ? 'translateY(0)' : 'translateY(100%)',
+          transition: 'transform var(--og-transition-normal)',
+        }}
       >
-        {/* Mobile drag handle */}
-        <div className="flex justify-center pt-3 pb-1 md:hidden">
-          <div
-            className="rounded-full"
-            style={{
-              width: 40,
-              height: 4,
-              background: 'var(--color-og-text-tertiary)',
-            }}
-          />
+        {/* Drag handle */}
+        <div style={{ display: 'flex', justifyContent: 'center', paddingTop: 12, paddingBottom: 4 }}>
+          <span className="og-drag-handle" />
         </div>
 
-        <div className="p-5 overflow-y-auto max-h-[60vh] md:max-h-[calc(100vh-3rem)]">
-          <h2
+        <div style={{ padding: '12px 16px 24px', overflowY: 'auto', maxHeight: '60vh' }}>
+          {/* Header row */}
+          <div
             style={{
-              fontFamily: 'var(--font-body)',
-              fontSize: '11px',
-              color: 'var(--color-og-text-tertiary)',
-              textTransform: 'uppercase',
-              letterSpacing: '0.05em',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
               marginBottom: 16,
             }}
           >
-            Filters
-          </h2>
-          <FilterPanel theme={theme.globeTheme} values={filterValues} onChange={handleFilterChange} />
+            <span className="og-section-label" style={{ marginBottom: 0 }}>
+              Filters
+            </span>
+            <span className="og-mono-sm" style={{ color: 'var(--og-accent)' }}>
+              4,677
+            </span>
+          </div>
 
-          {/* Species count */}
-          <div
-            className="mt-4 pt-4"
-            style={{
-              borderTop: '1px solid var(--color-og-border)',
-              fontFamily: 'var(--font-mono)',
-              fontSize: 13,
-              color: 'var(--color-og-text-secondary)',
-            }}
-          >
-            {spatial.points.length > 0
-              ? `${spatial.points.length.toLocaleString()} species in view`
-              : spatial.isClusterZoom
-                ? 'Zoom in to see species'
-                : 'Loading\u2026'}
+          <FilterPanel
+            theme={coreTheme}
+            values={filterValues}
+            onChange={handleFilterChange}
+          />
+
+          {/* Rarity legend */}
+          <div style={{ marginTop: 16 }}>
+            <div className="og-section-label">Rarity</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {RARITY_ITEMS.map((r) => (
+                <div
+                  key={r.key}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                  }}
+                >
+                  <span
+                    style={{
+                      width: 8,
+                      height: 8,
+                      borderRadius: '50%',
+                      flexShrink: 0,
+                      background: r.color,
+                      boxShadow: r.glow
+                        ? `0 0 4px ${r.hex}4d`
+                        : undefined,
+                    }}
+                  />
+                  <span
+                    style={{
+                      fontFamily: 'var(--og-font-body)',
+                      fontSize: 12,
+                      color: 'var(--og-text-secondary)',
+                    }}
+                  >
+                    {r.label}
+                  </span>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Species detail drawer */}
+      {/* ── Species detail drawer ────────────────────────────────────── */}
       {selectedPoint && (
         <FishDetail point={selectedPoint} onClose={() => setSelectedPoint(null)} />
       )}
 
-      {/* Attribution — bottom center */}
+      {/* ── Zoom controls — bottom-right ─────────────────────────────── */}
+      <ZoomControls />
+
+      {/* ── Attribution — bottom-center ──────────────────────────────── */}
       <div
-        className="og-glass fixed bottom-3 left-1/2 -translate-x-1/2 z-10 px-4 py-1.5 flex gap-4"
+        id="og-attribution"
         style={{
-          fontFamily: 'var(--font-body)',
-          fontSize: '11px',
-          color: 'var(--color-og-text-tertiary)',
-          borderRadius: 'var(--og-radius-sm)',
+          position: 'absolute',
+          bottom: 16,
+          left: '50%',
+          transform: 'translateX(-50%)',
+          zIndex: 10,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+          opacity: 0.35,
         }}
       >
-        {theme.globeTheme.attribution.map((a) => (
-          <a
-            key={a.name}
-            href={a.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="hover:underline"
-            style={{ transition: 'color var(--og-transition-fast)' }}
-            onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--color-og-text-secondary)')}
-            onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--color-og-text-tertiary)')}
-          >
-            {a.name} ({a.license})
-          </a>
-        ))}
+        {/* Clock icon */}
+        <svg
+          width="12"
+          height="12"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="var(--og-text-tertiary)"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+        >
+          <circle cx="12" cy="12" r="10" />
+          <path d="M12 8v4l3 3" />
+        </svg>
+        <span
+          style={{
+            fontFamily: 'var(--og-font-body)',
+            fontSize: 10,
+            color: 'var(--og-text-tertiary)',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          Data: FishBase (CC-BY-NC) + GBIF
+        </span>
       </div>
 
-      {/* Loading indicator */}
+      {/* ── Loading indicator ────────────────────────────────────────── */}
       {spatial.loading && (
         <div
-          className="og-glass fixed top-4 right-4 z-20 px-4 py-2"
+          className="og-glass"
           style={{
-            fontFamily: 'var(--font-mono)',
-            fontSize: '11px',
-            color: 'var(--color-og-accent)',
+            position: 'absolute',
+            top: 60,
+            right: 16,
+            zIndex: 20,
+            padding: '6px 14px',
+            fontFamily: 'var(--og-font-mono)',
+            fontSize: 11,
+            color: 'var(--og-accent)',
             borderRadius: 'var(--og-radius-sm)',
           }}
         >
-          Loading tiles\u2026
+          Loading tiles…
         </div>
       )}
     </div>
