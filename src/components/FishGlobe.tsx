@@ -1,12 +1,13 @@
 import { useState, useCallback, useRef, useContext, useEffect } from 'react';
 import { Globe, FilterPanel, useSpatialIndex } from '@openglobes/core';
-import type { PointItem } from '@openglobes/core';
+import type { PointItem, GlobeSceneRefs } from '@openglobes/core';
 import { ThemeContext } from '../themes';
 import { FishDetail } from './FishDetail';
 import SearchBar from './SearchBar';
 import { ZoomControls } from './ZoomControls';
 import { ThemeToggle } from './ThemeToggle';
 import { DepthEffect } from './DepthEffect';
+import { SwimmingFishManager } from './SwimmingFish';
 import { MIGRATION_ARCS } from '../data/migrations';
 import { OCEAN_CURRENTS, CURRENTS_DEFAULT_VISIBLE } from '../data/currents';
 
@@ -27,6 +28,26 @@ export function FishGlobe() {
   const [showCurrents, setShowCurrents] = useState(CURRENTS_DEFAULT_VISIBLE);
   const [depthEffect, setDepthEffect] = useState<number | null>(null);
   const [activeMonth, setActiveMonth] = useState<number | null>(null);
+
+  // ── Swimming fish sprites ─────────────────────────────────────────
+  const fishManagerRef = useRef<SwimmingFishManager | null>(null);
+
+  const handleSceneReady = useCallback((refs: GlobeSceneRefs) => {
+    fishManagerRef.current = new SwimmingFishManager(refs.scene, refs.getCoords);
+  }, []);
+
+  const handleFrame = useCallback((dt: number) => {
+    fishManagerRef.current?.update(dt);
+  }, []);
+
+  // Clean up fish sprites on unmount
+  useEffect(() => {
+    return () => {
+      fishManagerRef.current?.dispose();
+      fishManagerRef.current = null;
+    };
+  }, []);
+  // ── end swimming fish sprites ─────────────────────────────────────
 
   const spatial = useSpatialIndex({
     tileBaseUrl: '/data',
@@ -107,6 +128,11 @@ export function FishGlobe() {
     },
   );
 
+  // ── Update swimming fish when visible points change ──────────────
+  useEffect(() => {
+    fishManagerRef.current?.updatePoints(displayPoints);
+  }, [displayPoints]);
+
   // Pass only waterType + depth to FilterPanel; render rarity as custom legend
   const coreFilters = theme.globeTheme.filters.filter((f) => f.key !== 'rarity');
   const coreTheme = { ...theme.globeTheme, filters: coreFilters };
@@ -130,6 +156,8 @@ export function FishGlobe() {
         trails={showCurrents ? OCEAN_CURRENTS : []}
         onPointClick={setSelectedPoint}
         onCameraChange={handleCameraChange}
+        onSceneReady={handleSceneReady}
+        onFrame={handleFrame}
       />
 
       {/* ── Search bar — top-center ──────────────────────────────────── */}

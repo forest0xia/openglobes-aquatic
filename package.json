@@ -1,0 +1,26 @@
+{
+  "name": "openglobes-fish",
+  "type": "module",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview"
+  },
+  "dependencies": {
+    "@astrojs/react": "^4.3.0",
+    "@openglobes/core": "file:../openglobes-core",
+    "astro": "^5.11.0",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.1.10",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@types/three": "^0.183.1",
+    "tailwindcss": "^4.1.10",
+    "three": "^0.183.2"
+  }
+}
