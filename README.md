@@ -26,6 +26,28 @@ pnpm dev
 Deployed automatically via GitHub Actions — the workflow clones the ETL repo at
 build time and deploys to Cloudflare Pages. See `.github/workflows/deploy.yml`.
 
+## Theming
+
+The site supports build-time + runtime theme switching. All visual styling flows
+through CSS custom properties — components never hardcode colors.
+
+### Switching themes at runtime
+
+A theme toggle appears in the top-right corner. Selection persists to localStorage.
+
+### Adding a new theme
+
+1. Create `src/themes/{name}.ts` — export a `GlobeTheme` object
+2. Add `[data-theme="{name}"]` overrides in `src/styles/tokens.css`
+3. Register in `src/themes/index.ts` THEMES array
+
+The theme automatically appears in the UI toggle.
+
+### CSS class system
+
+All components use `og-*` prefixed CSS classes defined in `src/styles/tokens.css`.
+See `../openglobes-core/docs/DESIGN_SYSTEM.md` for the full specification.
+
 ## Data sources
 
 - [FishBase](https://www.fishbase.se) (CC-BY-NC 4.0)
