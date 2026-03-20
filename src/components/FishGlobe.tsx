@@ -8,11 +8,13 @@ import { ZoomControls } from './ZoomControls';
 // ThemeToggle removed — Night Mode chip added to Overlays section instead
 // DepthEffect removed — user found it distracting
 import { SwimmingFishManager } from './SwimmingFish';
+import { GeoLabelsManager } from './GeoLabels';
 import { FishNearMe } from './FishNearMe';
 import { DiscoverButton } from './DiscoverButton';
 import { flyTo } from '../utils/flyTo';
 import { MIGRATION_ARCS } from '../data/migrations';
 import { OCEAN_CURRENTS, CURRENTS_DEFAULT_VISIBLE } from '../data/currents';
+import { GEO_LABELS } from '../data/geoLabels';
 
 // Rarity legend config
 const RARITY_ITEMS = [
@@ -32,6 +34,9 @@ export function FishGlobe() {
   const [showCurrents, setShowCurrents] = useState(CURRENTS_DEFAULT_VISIBLE);
   // depthEffect removed
   const [activeMonth, setActiveMonth] = useState<number | null>(null);
+  const [showFilters, setShowFilters] = useState(true);
+  const [detailDismissed, setDetailDismissed] = useState(false);
+  const [showLabels, setShowLabels] = useState(true);
 
   // ── Scene refs for flyTo ─────────────────────────────────────────
   const sceneRefsRef = useRef<GlobeSceneRefs | null>(null);
@@ -39,23 +44,39 @@ export function FishGlobe() {
   // ── Swimming fish sprites ─────────────────────────────────────────
   const fishManagerRef = useRef<SwimmingFishManager | null>(null);
 
+  // ── Geographic labels ─────────────────────────────────────────────
+  const labelsManagerRef = useRef<GeoLabelsManager | null>(null);
+
   const handleSceneReady = useCallback((refs: GlobeSceneRefs) => {
     sceneRefsRef.current = refs;
     fishManagerRef.current = new SwimmingFishManager(refs.scene, refs.getCoords);
+    labelsManagerRef.current = new GeoLabelsManager(refs.scene, refs.getCoords, GEO_LABELS);
   }, []);
 
   const handleFrame = useCallback((dt: number) => {
     fishManagerRef.current?.update(dt);
   }, []);
 
-  // Clean up fish sprites on unmount
+  // Clean up fish sprites and geo labels on unmount
   useEffect(() => {
     return () => {
       fishManagerRef.current?.dispose();
       fishManagerRef.current = null;
+      labelsManagerRef.current?.dispose();
+      labelsManagerRef.current = null;
     };
   }, []);
   // ── end swimming fish sprites ─────────────────────────────────────
+
+  // ── Reset detailDismissed when a new point is selected ───────────
+  useEffect(() => {
+    if (selectedPoint) setDetailDismissed(false);
+  }, [selectedPoint]);
+
+  // ── Sync labels visibility with showLabels state ──────────────────
+  useEffect(() => {
+    labelsManagerRef.current?.setVisible(showLabels);
+  }, [showLabels]);
 
   // ── flyTo handler for FishNearMe ────────────────────────────────
   const handleFlyTo = useCallback((lat: number, lng: number) => {
@@ -70,6 +91,7 @@ export function FishGlobe() {
 
   const spatial = useSpatialIndex({
     tileBaseUrl: '/data',
+    tileManifestUrl: '/data/tile-manifest.json',
     minZoom: 0,
     maxZoom: 6,
     filters: filterValues,
@@ -214,14 +236,55 @@ export function FishGlobe() {
 
       {/* Theme toggle removed — Night Mode is in Overlays section */}
 
+      {/* ── Panel controls — top-left, below search bar ──────────────── */}
+      <div
+        style={{
+          position: 'absolute',
+          top: 52,
+          left: 16,
+          zIndex: 15,
+          display: 'flex',
+          gap: 4,
+        }}
+        className="hidden md:flex"
+      >
+        <button
+          type="button"
+          className={`og-chip${showFilters ? ' og-chip--active' : ''}`}
+          onClick={() => setShowFilters(v => !v)}
+          style={{ fontSize: 10, height: 26, padding: '0 10px' }}
+        >
+          Filters
+        </button>
+        <button
+          type="button"
+          className={`og-chip${selectedPoint && !detailDismissed ? ' og-chip--active' : ''}`}
+          onClick={() => {
+            if (selectedPoint) setDetailDismissed(v => !v);
+          }}
+          style={{ fontSize: 10, height: 26, padding: '0 10px', opacity: selectedPoint ? 1 : 0.4 }}
+        >
+          Detail
+        </button>
+        <button
+          type="button"
+          className={`og-chip${showLabels ? ' og-chip--active' : ''}`}
+          onClick={() => setShowLabels(v => !v)}
+          style={{ fontSize: 10, height: 26, padding: '0 10px' }}
+        >
+          Labels
+        </button>
+      </div>
+
       {/* ── Filter panel — desktop: left sidebar / mobile: bottom sheet ─ */}
       {/* Desktop */}
+      {showFilters && (
       <div
         id="og-filters"
         className="og-glass hidden md:block"
         style={{
           position: 'absolute',
-          top: 60,
+          top: 84,
           left: 16,
           width: 240,
           zIndex: 10,
@@ -390,6 +453,7 @@ export function FishGlobe() {
           </div>
         </div>
       </div>
+      )}
 
       {/* Mobile filter toggle button */}
       <button
@@ -596,7 +660,7 @@ export function FishGlobe() {
       </div>
 
       {/* ── Species detail drawer ────────────────────────────────────── */}
-      {selectedPoint && (
+      {selectedPoint && !detailDismissed && (
         <FishDetail point={selectedPoint} onClose={() => setSelectedPoint(null)} />
       )}
 
