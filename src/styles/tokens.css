@@ -1,0 +1,271 @@
+/* ============================================================
+   OpenGlobes Design System — tokens.css
+   All CSS custom properties and og-* utility classes.
+   Theme swapping: set data-theme="midnight" (or any future theme)
+   on <html> to override tokens.
+   ============================================================ */
+
+/* ------------------------------------------------------------------ */
+/* 1. DESIGN TOKENS — :root                                            */
+/* ------------------------------------------------------------------ */
+:root {
+  /* Backgrounds */
+  --og-bg-void:         #050a12;
+  --og-bg-glass:        rgba(8, 16, 32, 0.72);
+  --og-bg-glass-heavy:  rgba(8, 16, 32, 0.82);
+  --og-bg-surface:      rgba(15, 25, 45, 0.55);
+
+  /* Borders */
+  --og-border:          rgba(100, 160, 255, 0.08);
+  --og-border-hover:    rgba(100, 160, 255, 0.15);
+  --og-border-active:   rgba(100, 160, 255, 0.25);
+
+  /* Text */
+  --og-text-primary:    rgba(230, 240, 255, 0.95);
+  --og-text-secondary:  rgba(160, 180, 210, 0.72);
+  --og-text-tertiary:   rgba(120, 140, 170, 0.5);
+
+  /* Accent */
+  --og-accent:          #4cc9f0;
+  --og-accent-dim:      rgba(76, 201, 240, 0.15);
+  --og-accent-glow:     rgba(76, 201, 240, 0.3);
+
+  /* Rarity */
+  --og-rarity-common:    #48bfe6;
+  --og-rarity-uncommon:  #56d6a0;
+  --og-rarity-rare:      #f9c74f;
+  --og-rarity-legendary: #ef476f;
+  --og-rarity-mythic:    #b185db;
+
+  /* Typography */
+  --og-font-display: 'Outfit', sans-serif;
+  --og-font-body:    'DM Sans', sans-serif;
+  --og-font-mono:    'JetBrains Mono', monospace;
+
+  /* Blur */
+  --og-blur:       20px;
+  --og-blur-heavy: 40px;
+
+  /* Border radius */
+  --og-radius-sm: 6px;
+  --og-radius-md: 10px;
+  --og-radius-lg: 16px;
+  --og-radius-xl: 24px;
+
+  /* Shadows */
+  --og-shadow-md:   0 4px 24px rgba(0, 0, 0, 0.4);
+  --og-shadow-glow: 0 0 20px rgba(76, 201, 240, 0.15);
+
+  /* Transitions */
+  --og-transition-fast:   150ms cubic-bezier(0.16, 1, 0.3, 1);
+  --og-transition-normal: 250ms cubic-bezier(0.16, 1, 0.3, 1);
+  --og-transition-slow:   400ms cubic-bezier(0.16, 1, 0.3, 1);
+  --og-transition-spring: 500ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* ------------------------------------------------------------------ */
+/* 2. THEME OVERRIDES                                                   */
+/* ------------------------------------------------------------------ */
+
+/* fish IS the default — no overrides needed */
+[data-theme="fish"] {}
+
+/* Midnight — purple-tinted sample theme */
+[data-theme="midnight"] {
+  --og-bg-void:          #020208;
+  --og-accent:           #a78bfa;
+  --og-accent-dim:       rgba(167, 139, 250, 0.15);
+  --og-accent-glow:      rgba(167, 139, 250, 0.3);
+  --og-rarity-common:    #93c5fd;
+}
+
+/* ------------------------------------------------------------------ */
+/* 3. OG-* UTILITY CLASSES                                             */
+/* ------------------------------------------------------------------ */
+
+/* --- Glass panel --------------------------------------------------- */
+.og-glass {
+  background: var(--og-bg-glass);
+  backdrop-filter: blur(var(--og-blur));
+  -webkit-backdrop-filter: blur(var(--og-blur));
+  border: 1px solid var(--og-border);
+  border-radius: var(--og-radius-lg);
+  box-shadow: var(--og-shadow-md);
+  transition:
+    background var(--og-transition-normal),
+    border-color var(--og-transition-normal);
+}
+
+.og-glass:hover {
+  border-color: var(--og-border-hover);
+}
+
+/* --- Heavy glass (drawers / modals) -------------------------------- */
+.og-glass-heavy {
+  background: var(--og-bg-glass-heavy);
+  backdrop-filter: blur(var(--og-blur-heavy));
+  -webkit-backdrop-filter: blur(var(--og-blur-heavy));
+  border: 1px solid var(--og-border);
+  border-radius: var(--og-radius-lg);
+  box-shadow: var(--og-shadow-md);
+  transition:
+    background var(--og-transition-normal),
+    border-color var(--og-transition-normal);
+}
+
+.og-glass-heavy:hover {
+  border-color: var(--og-border-hover);
+}
+
+/* --- Inset surface within glass panels ----------------------------- */
+.og-glass-inset {
+  background: var(--og-bg-surface);
+  border-radius: var(--og-radius-md);
+  border: 1px solid var(--og-border);
+  padding: 8px 10px;
+}
+
+/* --- Filter / tag chip --------------------------------------------- */
+.og-chip {
+  display: inline-flex;
+  align-items: center;
+  height: 32px;
+  padding: 5px 12px;
+  border-radius: var(--og-radius-sm);
+  background: var(--og-bg-surface);
+  border: 1px solid var(--og-border);
+  font-family: var(--og-font-body);
+  font-size: 12px;
+  color: var(--og-text-secondary);
+  cursor: pointer;
+  transition:
+    background var(--og-transition-fast),
+    border-color var(--og-transition-fast),
+    color var(--og-transition-fast);
+}
+
+.og-chip--active {
+  background: var(--og-accent-dim);
+  border-color: var(--og-accent-glow);
+  color: var(--og-accent);
+}
+
+/* --- Section label ------------------------------------------------- */
+.og-section-label {
+  font-family: var(--og-font-body);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--og-text-tertiary);
+  margin-bottom: 8px;
+}
+
+/* --- Mono value (large readable number / coordinate) --------------- */
+.og-mono-value {
+  font-family: var(--og-font-mono);
+  font-size: 14px;
+  color: var(--og-text-primary);
+}
+
+/* --- Mono small (secondary data) ----------------------------------- */
+.og-mono-sm {
+  font-family: var(--og-font-mono);
+  font-size: 12px;
+  color: var(--og-text-secondary);
+}
+
+/* --- Rarity badge (pill) ------------------------------------------- */
+.og-rarity-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 9999px;
+  font-family: var(--og-font-body);
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 3px 10px;
+}
+
+/* --- Link / action button ------------------------------------------ */
+.og-link-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  background: var(--og-bg-surface);
+  border-radius: 8px;
+  border: 1px solid var(--og-border);
+  font-family: var(--og-font-body);
+  font-size: 12px;
+  color: rgba(76, 201, 240, 0.8);
+  cursor: pointer;
+  text-align: center;
+  transition:
+    background var(--og-transition-fast),
+    border-color var(--og-transition-fast);
+}
+
+.og-link-button:hover {
+  border-color: var(--og-border-hover);
+}
+
+/* --- Zoom button ---------------------------------------------------- */
+.og-zoom-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  background: var(--og-bg-glass);
+  backdrop-filter: blur(var(--og-blur));
+  -webkit-backdrop-filter: blur(var(--og-blur));
+  border: 1px solid var(--og-border);
+  cursor: pointer;
+  transition:
+    background var(--og-transition-fast),
+    border-color var(--og-transition-fast);
+}
+
+.og-zoom-btn:hover {
+  border-color: var(--og-border-hover);
+}
+
+/* --- Drag handle (mobile bottom sheets) ---------------------------- */
+.og-drag-handle {
+  display: block;
+  width: 40px;
+  height: 4px;
+  border-radius: 9999px;
+  background: var(--og-text-tertiary);
+  margin: 0 auto;
+}
+
+/* ------------------------------------------------------------------ */
+/* 4. KEYFRAME ANIMATIONS                                               */
+/* ------------------------------------------------------------------ */
+
+@keyframes slideInLeft {
+  from { transform: translateX(-100%); opacity: 0; }
+  to   { transform: translateX(0);     opacity: 1; }
+}
+
+@keyframes slideInRight {
+  from { transform: translateX(100%); opacity: 0; }
+  to   { transform: translateX(0);    opacity: 1; }
+}
+
+@keyframes slideInUp {
+  from { transform: translateY(100%); }
+  to   { transform: translateY(0);    }
+}
+
+@keyframes globeFadeIn {
+  from { opacity: 0; transform: scale(0.9); }
+  to   { opacity: 1; transform: scale(1);   }
+}
+
+@keyframes pointPulse {
+  0%, 100% { transform: scale(1);   opacity: 1;   }
+  50%       { transform: scale(1.4); opacity: 0.6; }
+}

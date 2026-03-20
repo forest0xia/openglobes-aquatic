@@ -1,0 +1,11 @@
+@import "tailwindcss";
+@import "./tokens.css";
+
+html, body {
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  background: var(--og-bg-void);
+  color: var(--og-text-primary);
+  font-family: var(--og-font-body);
+}
