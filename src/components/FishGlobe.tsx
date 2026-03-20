@@ -36,7 +36,7 @@ export function FishGlobe() {
   const [activeMonth, setActiveMonth] = useState<number | null>(null);
   const [showFilters, setShowFilters] = useState(true);
   const [detailDismissed, setDetailDismissed] = useState(false);
-  const [showLabels, setShowLabels] = useState(true);
+  const [labelTypes, setLabelTypes] = useState<string[]>(['ocean', 'sea', 'continent', 'island']);
   const [listPanel, setListPanel] = useState<{ title: string; items: { id: string; name: string; extra?: string }[] } | null>(null);
 
   // ── Scene refs for flyTo ─────────────────────────────────────────
@@ -71,10 +71,15 @@ export function FishGlobe() {
     if (selectedPoint) setDetailDismissed(false);
   }, [selectedPoint]);
 
-  // ── Sync labels visibility with showLabels state ──────────────────
+  // ── Sync labels visibility with labelTypes state ──────────────────
   useEffect(() => {
-    labelsManagerRef.current?.setVisible(showLabels);
-  }, [showLabels]);
+    if (!labelsManagerRef.current) return;
+    const anyVisible = labelTypes.length > 0;
+    labelsManagerRef.current.setVisible(anyVisible);
+    for (const type of ['ocean', 'sea', 'continent', 'island']) {
+      labelsManagerRef.current.setTypeVisible(type, labelTypes.includes(type));
+    }
+  }, [labelTypes]);
 
   // ── flyTo handler for FishNearMe ────────────────────────────────
   const handleFlyTo = useCallback((lat: number, lng: number) => {
@@ -89,13 +94,22 @@ export function FishGlobe() {
 
   // ── Migration species list for ListPanel ───────────────────────
   const migrationSpecies = useMemo(() => {
-    const unique = new Map<string, string>();
+    const unique = new Map<string, { name: string; legs: number }>();
     for (const arc of MIGRATION_ARCS) {
-      if (arc.label && !unique.has(arc.label)) {
-        unique.set(arc.label, arc.id ?? arc.label);
+      if (arc.label) {
+        const existing = unique.get(arc.label);
+        if (existing) {
+          existing.legs++;
+        } else {
+          unique.set(arc.label, { name: arc.label, legs: 1 });
+        }
       }
     }
-    return Array.from(unique.entries()).map(([name, id]) => ({ id, name }));
+    return Array.from(unique.values()).map(({ name, legs }) => ({
+      id: name,
+      name,
+      extra: `${legs} leg${legs > 1 ? 's' : ''} route`,
+    }));
   }, []);
 
   const spatial = useSpatialIndex({
@@ -107,13 +121,12 @@ export function FishGlobe() {
   });
 
   // ── Camera throttle fix ──────────────────────────────────────────────
-  // Keep this block EXACTLY as-is. The trailing setTimeout ensures tiles
-  // load after the animation loop settles (debounce-bug workaround).
+  // Always schedule a trailing update — useSpatialIndex's own
+  // lastFetchKey check prevents duplicate fetches internally.
+  // The 300ms trailing setTimeout ensures tiles load after any camera
+  // movement settles.
   const updateCameraRef = useRef(spatial.updateCamera);
   updateCameraRef.current = spatial.updateCamera;
-  const lastDistRef = useRef(0);
-  const lastLatRef = useRef<number | null>(null);
-  const lastLngRef = useRef<number | null>(null);
   const throttleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const handleCameraChange = useCallback(
@@ -128,30 +141,19 @@ export function FishGlobe() {
         centerLng = Math.atan2(x, z) * (180 / Math.PI);
       }
 
-      // Trigger reload if distance OR look-at position changed
-      const distChanged = Math.abs(distance - lastDistRef.current) > 0.5;
-      const latChanged = Math.abs(centerLat - (lastLatRef.current ?? 0)) > 0.5;
-      const lngChanged = Math.abs(centerLng - (lastLngRef.current ?? 0)) > 0.5;
+      const halfArc = Math.asin(Math.min(1, 100 / distance)) * (180 / Math.PI);
+      const bounds = {
+        north: Math.min(85, centerLat + halfArc),
+        south: Math.max(-85, centerLat - halfArc),
+        east: Math.min(180, centerLng + halfArc),
+        west: Math.max(-180, centerLng - halfArc),
+      };
 
-      if (distChanged || latChanged || lngChanged || lastDistRef.current === 0) {
-        lastDistRef.current = distance;
-        lastLatRef.current = centerLat;
-        lastLngRef.current = centerLng;
-
-        const halfArc = Math.asin(Math.min(1, 100 / distance)) * (180 / Math.PI);
-        const bounds = {
-          north: Math.min(85, centerLat + halfArc),
-          south: Math.max(-85, centerLat - halfArc),
-          east: Math.min(180, centerLng + halfArc),
-          west: Math.max(-180, centerLng - halfArc),
-        };
+      // Always schedule a trailing update
+      if (throttleRef.current) clearTimeout(throttleRef.current);
+      throttleRef.current = setTimeout(() => {
         updateCameraRef.current(distance, bounds);
-
-        if (throttleRef.current) clearTimeout(throttleRef.current);
-        throttleRef.current = setTimeout(() => {
-          updateCameraRef.current(distance, bounds);
-        }, 200);
-      }
+      }, 300);
     },
     [],
   );
@@ -260,7 +262,7 @@ export function FishGlobe() {
         theme={theme.globeTheme}
         points={displayPoints}
         arcs={showMigrations ? MIGRATION_ARCS : []}
-        arcConfig={{ elevation: 0.005 }}
+        arcConfig={{ elevation: 0.03 }}
         trails={showCurrents ? OCEAN_CURRENTS : []}
         onPointClick={handlePointClick}
         onCameraChange={handleCameraChange}
@@ -303,14 +305,6 @@ export function FishGlobe() {
         >
           Detail
         </button>
-        <button
-          type="button"
-          className={`og-chip${showLabels ? ' og-chip--active' : ''}`}
-          onClick={() => setShowLabels(v => !v)}
-          style={{ fontSize: 10, height: 26, padding: '0 10px' }}
-        >
-          Labels
-        </button>
       </div>
 
       {/* ── Filter panel — desktop: left sidebar / mobile: bottom sheet ─ */}
@@ -333,16 +327,13 @@ export function FishGlobe() {
           <div
             style={{
               display: 'flex',
-              justifyContent: 'space-between',
+              justifyContent: 'center',
               alignItems: 'center',
               marginBottom: 16,
             }}
           >
-            <span className="og-section-label" style={{ marginBottom: 0 }}>
-              Filters
-            </span>
             <span className="og-mono-sm" style={{ color: 'var(--og-accent)' }}>
-              {totalSpeciesCount.toLocaleString()} in view
+              {totalSpeciesCount.toLocaleString()} species in view
             </span>
           </div>
 
@@ -476,6 +467,35 @@ export function FishGlobe() {
               })}
             </div>
           </div>
+
+          {/* Labels section */}
+          <div style={{ marginTop: 16 }}>
+            <div className="og-section-label">Labels</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {[
+                { type: 'ocean', label: 'Oceans' },
+                { type: 'sea', label: 'Seas' },
+                { type: 'continent', label: 'Continents' },
+                { type: 'island', label: 'Islands' },
+              ].map(lt => (
+                <button
+                  key={lt.type}
+                  type="button"
+                  className={`og-chip${labelTypes.includes(lt.type) ? ' og-chip--active' : ''}`}
+                  onClick={() => {
+                    setLabelTypes(prev =>
+                      prev.includes(lt.type)
+                        ? prev.filter(t => t !== lt.type)
+                        : [...prev, lt.type]
+                    );
+                  }}
+                  style={{ fontSize: 11 }}
+                >
+                  {lt.label}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
       </div>
       )}
@@ -527,16 +547,13 @@ export function FishGlobe() {
           <div
             style={{
               display: 'flex',
-              justifyContent: 'space-between',
+              justifyContent: 'center',
               alignItems: 'center',
               marginBottom: 16,
             }}
           >
-            <span className="og-section-label" style={{ marginBottom: 0 }}>
-              Filters
-            </span>
             <span className="og-mono-sm" style={{ color: 'var(--og-accent)' }}>
-              {totalSpeciesCount.toLocaleString()} in view
+              {totalSpeciesCount.toLocaleString()} species in view
             </span>
           </div>
 
@@ -669,6 +686,35 @@ export function FishGlobe() {
               })}
             </div>
           </div>
+
+          {/* Labels section (mobile) */}
+          <div style={{ marginTop: 16 }}>
+            <div className="og-section-label">Labels</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {[
+                { type: 'ocean', label: 'Oceans' },
+                { type: 'sea', label: 'Seas' },
+                { type: 'continent', label: 'Continents' },
+                { type: 'island', label: 'Islands' },
+              ].map(lt => (
+                <button
+                  key={lt.type}
+                  type="button"
+                  className={`og-chip${labelTypes.includes(lt.type) ? ' og-chip--active' : ''}`}
+                  onClick={() => {
+                    setLabelTypes(prev =>
+                      prev.includes(lt.type)
+                        ? prev.filter(t => t !== lt.type)
+                        : [...prev, lt.type]
+                    );
+                  }}
+                  style={{ fontSize: 11 }}
+                >
+                  {lt.label}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
       </div>
 
@@ -686,9 +732,16 @@ export function FishGlobe() {
           items={listPanel.items}
           onClose={() => setListPanel(null)}
           onItemClick={(id) => {
-            const found = spatial.points.find(p => p.id === id);
+            const found = allPointsRef.current.find(p => p.id === id);
             if (found) {
               setSelectedPoint(found);
+              setListPanel(null);
+              if (sceneRefsRef.current) {
+                flyTo(sceneRefsRef.current, found.lat, found.lng, { duration: 1500 });
+              }
+            } else {
+              // Species not in loaded tiles — just show its detail by fetching directly
+              setSelectedPoint({ id, lat: 0, lng: 0, name: 'Loading...' } as PointItem);
               setListPanel(null);
             }
           }}

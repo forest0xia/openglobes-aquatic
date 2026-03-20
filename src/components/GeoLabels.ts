@@ -79,6 +79,9 @@ export class GeoLabelsManager {
       const fontSize = style.baseFontSize * label.size;
       const sprite = createTextSprite(label.name, fontSize, style.opacity, style.uppercase);
 
+      // Store the label type for per-type visibility filtering
+      sprite.userData = { type: label.type };
+
       // Position slightly above the globe surface (alt = 0.02)
       const pos = getCoords(label.lat, label.lng, 0.02);
       sprite.position.set(pos.x, pos.y, pos.z);
@@ -93,6 +96,15 @@ export class GeoLabelsManager {
     this.visible = visible;
     for (const sprite of this.sprites) {
       sprite.visible = visible;
+    }
+  }
+
+  /** Set visibility for all labels of a given type. */
+  setTypeVisible(type: string, visible: boolean): void {
+    for (const sprite of this.sprites) {
+      if (sprite.userData.type === type) {
+        sprite.visible = this.visible && visible;
+      }
     }
   }
 

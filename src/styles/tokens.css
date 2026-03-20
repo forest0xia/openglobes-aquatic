@@ -56,6 +56,9 @@
   --og-shadow-md:   0 4px 24px rgba(0, 0, 0, 0.4);
   --og-shadow-glow: 0 0 20px rgba(76, 201, 240, 0.15);
 
+  /* Spacing */
+  --og-space-2: 8px;
+
   /* Transitions */
   --og-transition-fast:   150ms cubic-bezier(0.16, 1, 0.3, 1);
   --og-transition-normal: 250ms cubic-bezier(0.16, 1, 0.3, 1);
@@ -153,7 +156,6 @@
 .og-chip {
   display: inline-flex;
   align-items: center;
-  height: 32px;
   padding: 6px 14px;
   border-radius: var(--og-radius-sm);
   background: var(--og-bg-surface);
@@ -173,6 +175,11 @@
   background: var(--og-accent-dim);
   border-color: var(--og-accent-glow);
   color: var(--og-accent);
+}
+
+/* Increase gap between filter chips */
+[data-og="filter-content"] [data-og="chip"] + [data-og="chip"] {
+  margin-left: 2px;
 }
 
 /* --- Section label ------------------------------------------------- */
