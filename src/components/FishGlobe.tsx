@@ -91,7 +91,7 @@ export function FishGlobe() {
 
   const spatial = useSpatialIndex({
     tileBaseUrl: '/data',
-    tileManifestUrl: '/data/tile-manifest.json',
+    tileManifestUrl: '/tile-manifest.json',
     minZoom: 0,
     maxZoom: 6,
     filters: filterValues,
