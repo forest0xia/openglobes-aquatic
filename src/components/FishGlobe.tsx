@@ -111,19 +111,32 @@ export function FishGlobe() {
       if (distChanged || lastDistRef.current === 0) {
         lastDistRef.current = distance;
 
-        // At low zoom (far camera), load ALL tiles — there are very few
-        // (z0=1, z1=4, z2=16, z3=64). At higher zoom, estimate visible area.
         let bounds;
         if (distance > 250) {
-          // Far away — full globe
+          // Far away — full globe, load all tiles (z0=1, z1=4, z2=16, z3=64)
           bounds = { north: 85, south: -85, east: 180, west: -180 };
         } else {
+          // Calculate WHERE the camera is looking (not just how far)
+          // Camera orbits the origin; the closest globe point is along the
+          // camera→origin vector. Convert camera position to lat/lng.
+          const cam = sceneRefsRef.current?.camera;
+          let centerLat = 0;
+          let centerLng = 0;
+          if (cam) {
+            const { x, y, z } = cam.position;
+            const r = Math.sqrt(x * x + y * y + z * z);
+            centerLat = Math.asin(y / r) * (180 / Math.PI);
+            centerLng = Math.atan2(x, z) * (180 / Math.PI);
+          }
+
           const halfArc = Math.asin(Math.min(1, 100 / distance)) * (180 / Math.PI);
+          // Add generous padding so tiles just outside view are pre-loaded
+          const pad = halfArc * 0.5;
           bounds = {
-            north: Math.min(85, halfArc),
-            south: Math.max(-85, -halfArc),
-            east: Math.min(180, halfArc),
-            west: Math.max(-180, -halfArc),
+            north: Math.min(85, centerLat + halfArc + pad),
+            south: Math.max(-85, centerLat - halfArc - pad),
+            east: Math.min(180, centerLng + halfArc + pad),
+            west: Math.max(-180, centerLng - halfArc - pad),
           };
         }
         updateCameraRef.current(distance, bounds);
