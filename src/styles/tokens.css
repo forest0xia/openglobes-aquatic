@@ -231,6 +231,10 @@
   border-color: var(--og-border-hover);
 }
 
+.og-zoom-btn:hover .og-zoom-icon {
+  stroke: var(--og-text-primary);
+}
+
 /* --- Drag handle (mobile bottom sheets) ---------------------------- */
 .og-drag-handle {
   display: block;
