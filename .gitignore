@@ -5,7 +5,7 @@ node_modules/
 dist/
 
 # Data — symlinked locally, cloned in CI (see README)
-data/
+/data/
 
 # Environment
 .env
