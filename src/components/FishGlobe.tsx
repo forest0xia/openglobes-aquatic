@@ -7,7 +7,6 @@ import SearchBar from './SearchBar';
 import { ZoomControls } from './ZoomControls';
 // ThemeToggle removed — Night Mode chip added to Overlays section instead
 // DepthEffect removed — user found it distracting
-import { SwimmingFishManager } from './SwimmingFish';
 import { GeoLabelsManager } from './GeoLabels';
 import { FishNearMe } from './FishNearMe';
 import { DiscoverButton } from './DiscoverButton';
@@ -43,35 +42,29 @@ export function FishGlobe() {
   // ── Scene refs for flyTo ─────────────────────────────────────────
   const sceneRefsRef = useRef<GlobeSceneRefs | null>(null);
 
-  // ── Swimming fish sprites ─────────────────────────────────────────
-  const fishManagerRef = useRef<SwimmingFishManager | null>(null);
-
   // ── Geographic labels ─────────────────────────────────────────────
   const labelsManagerRef = useRef<GeoLabelsManager | null>(null);
 
   const handleSceneReady = useCallback((refs: GlobeSceneRefs) => {
     sceneRefsRef.current = refs;
-    fishManagerRef.current = new SwimmingFishManager(refs.scene, refs.getCoords);
     labelsManagerRef.current = new GeoLabelsManager(refs.scene, refs.getCoords, GEO_LABELS);
   }, []);
 
+  const frameCount = useRef(0);
   const handleFrame = useCallback((dt: number) => {
-    fishManagerRef.current?.update(dt);
-    if (sceneRefsRef.current) {
+    frameCount.current++;
+    if (frameCount.current % 10 === 0 && sceneRefsRef.current) {
       labelsManagerRef.current?.update(sceneRefsRef.current.camera);
     }
   }, []);
 
-  // Clean up fish sprites and geo labels on unmount
+  // Clean up geo labels on unmount
   useEffect(() => {
     return () => {
-      fishManagerRef.current?.dispose();
-      fishManagerRef.current = null;
       labelsManagerRef.current?.dispose();
       labelsManagerRef.current = null;
     };
   }, []);
-  // ── end swimming fish sprites ─────────────────────────────────────
 
   // ── Reset detailDismissed when a new point is selected ───────────
   useEffect(() => {
@@ -202,6 +195,14 @@ export function FishGlobe() {
     });
   }, [spatial.points, filterValues.waterType, filterValues.rarity]);
 
+  // ── Persistent points ref for Discover / NearMe (survives cluster zoom) ──
+  const allPointsRef = useRef<PointItem[]>([]);
+  useEffect(() => {
+    if (spatial.points.length > 0) {
+      allPointsRef.current = spatial.points;
+    }
+  }, [spatial.points]);
+
   // Show clusters at low zoom, filtered points at high zoom
   const displayPoints = spatial.isClusterZoom ? clusterPoints : filteredPoints;
 
@@ -212,11 +213,6 @@ export function FishGlobe() {
     }
     return filteredPoints.length;
   }, [spatial.isClusterZoom, spatial.clusters, filteredPoints]);
-
-  // ── Update swimming fish (only for real points, not clusters) ────
-  useEffect(() => {
-    fishManagerRef.current?.updatePoints(spatial.isClusterZoom ? [] : filteredPoints);
-  }, [spatial.isClusterZoom, filteredPoints]);
 
   // ── Clear rarity filter when entering cluster zoom ─────────────
   useEffect(() => {
@@ -350,24 +346,6 @@ export function FishGlobe() {
             </span>
           </div>
 
-          {/* Active filter summary */}
-          {(() => {
-            const wt = filterValues.waterType;
-            const wtLabel = !Array.isArray(wt) || wt.length === 0
-              ? 'All types'
-              : (wt as string[]).map(w => w === 'Saltwater' ? 'SW' : w === 'Freshwater' ? 'FW' : 'BW').join(', ');
-            return (
-              <div style={{
-                fontFamily: 'var(--og-font-mono)',
-                fontSize: 10,
-                color: 'var(--og-text-tertiary)',
-                marginBottom: 8,
-              }}>
-                Water: {wtLabel}
-              </div>
-            );
-          })()}
-
           {/* Water type + depth via FilterPanel */}
           <FilterPanel
             theme={coreTheme}
@@ -476,50 +454,26 @@ export function FishGlobe() {
           {/* Season section */}
           <div style={{ marginTop: 16 }}>
             <div className="og-section-label">Season</div>
-            <input
-              type="range"
-              min={1}
-              max={12}
-              value={activeMonth ?? 1}
-              onChange={(e) => setActiveMonth(parseInt(e.target.value))}
-              className="og-range"
-              style={{ width: '100%', accentColor: 'var(--og-accent)' }}
-            />
-            <div
-              style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                marginTop: 4,
-              }}
-            >
-              <span
-                className="og-mono-sm"
-                style={{ fontSize: 11, color: activeMonth ? 'var(--og-text-primary)' : 'var(--og-text-tertiary)' }}
-              >
-                {activeMonth
-                  ? ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][activeMonth - 1]
-                  : 'All months'}
-              </span>
-              {activeMonth !== null && (
-                <button
-                  type="button"
-                  onClick={() => setActiveMonth(null)}
-                  style={{
-                    background: 'none',
-                    border: 'none',
-                    cursor: 'pointer',
-                    fontFamily: 'var(--og-font-body)',
-                    fontSize: 10,
-                    color: 'var(--og-accent)',
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.05em',
-                    padding: 0,
-                  }}
-                >
-                  Reset
-                </button>
-              )}
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              {[
+                { label: 'Spring', months: [3,4,5] },
+                { label: 'Summer', months: [6,7,8] },
+                { label: 'Fall', months: [9,10,11] },
+                { label: 'Winter', months: [12,1,2] },
+              ].map(s => {
+                const isActive = activeMonth !== null && s.months.includes(activeMonth);
+                return (
+                  <button
+                    key={s.label}
+                    type="button"
+                    className={`og-chip${isActive ? ' og-chip--active' : ''}`}
+                    onClick={() => setActiveMonth(isActive ? null : s.months[1])}
+                    style={{ fontSize: 11 }}
+                  >
+                    {s.label}
+                  </button>
+                );
+              })}
             </div>
           </div>
         </div>
@@ -585,24 +539,6 @@ export function FishGlobe() {
               {totalSpeciesCount.toLocaleString()} in view
             </span>
           </div>
-
-          {/* Active filter summary */}
-          {(() => {
-            const wt = filterValues.waterType;
-            const wtLabel = !Array.isArray(wt) || wt.length === 0
-              ? 'All types'
-              : (wt as string[]).map(w => w === 'Saltwater' ? 'SW' : w === 'Freshwater' ? 'FW' : 'BW').join(', ');
-            return (
-              <div style={{
-                fontFamily: 'var(--og-font-mono)',
-                fontSize: 10,
-                color: 'var(--og-text-tertiary)',
-                marginBottom: 8,
-              }}>
-                Water: {wtLabel}
-              </div>
-            );
-          })()}
 
           <FilterPanel
             theme={coreTheme}
@@ -711,50 +647,26 @@ export function FishGlobe() {
           {/* Season section (mobile) */}
           <div style={{ marginTop: 16 }}>
             <div className="og-section-label">Season</div>
-            <input
-              type="range"
-              min={1}
-              max={12}
-              value={activeMonth ?? 1}
-              onChange={(e) => setActiveMonth(parseInt(e.target.value))}
-              className="og-range"
-              style={{ width: '100%', accentColor: 'var(--og-accent)' }}
-            />
-            <div
-              style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                marginTop: 4,
-              }}
-            >
-              <span
-                className="og-mono-sm"
-                style={{ fontSize: 11, color: activeMonth ? 'var(--og-text-primary)' : 'var(--og-text-tertiary)' }}
-              >
-                {activeMonth
-                  ? ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][activeMonth - 1]
-                  : 'All months'}
-              </span>
-              {activeMonth !== null && (
-                <button
-                  type="button"
-                  onClick={() => setActiveMonth(null)}
-                  style={{
-                    background: 'none',
-                    border: 'none',
-                    cursor: 'pointer',
-                    fontFamily: 'var(--og-font-body)',
-                    fontSize: 10,
-                    color: 'var(--og-accent)',
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.05em',
-                    padding: 0,
-                  }}
-                >
-                  Reset
-                </button>
-              )}
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              {[
+                { label: 'Spring', months: [3,4,5] },
+                { label: 'Summer', months: [6,7,8] },
+                { label: 'Fall', months: [9,10,11] },
+                { label: 'Winter', months: [12,1,2] },
+              ].map(s => {
+                const isActive = activeMonth !== null && s.months.includes(activeMonth);
+                return (
+                  <button
+                    key={s.label}
+                    type="button"
+                    className={`og-chip${isActive ? ' og-chip--active' : ''}`}
+                    onClick={() => setActiveMonth(isActive ? null : s.months[1])}
+                    style={{ fontSize: 11 }}
+                  >
+                    {s.label}
+                  </button>
+                );
+              })}
             </div>
           </div>
         </div>
@@ -796,10 +708,10 @@ export function FishGlobe() {
       />
 
       {/* ── Discover rare fish — bottom-right, above zoom ──────────── */}
-      <DiscoverButton points={spatial.points} onDiscover={handleDiscover} />
+      <DiscoverButton points={allPointsRef.current} onDiscover={handleDiscover} />
 
       {/* ── Fish Near Me — bottom-left ─────────────────────────────── */}
-      <FishNearMe points={spatial.points} onFlyTo={handleFlyTo} />
+      <FishNearMe points={allPointsRef.current} onFlyTo={handleFlyTo} />
 
       {/* ── Attribution — bottom-center ──────────────────────────────── */}
       <div

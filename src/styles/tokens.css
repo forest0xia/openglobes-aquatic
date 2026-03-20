@@ -154,7 +154,7 @@
   display: inline-flex;
   align-items: center;
   height: 32px;
-  padding: 5px 12px;
+  padding: 6px 14px;
   border-radius: var(--og-radius-sm);
   background: var(--og-bg-surface);
   border: 1px solid var(--og-border);
