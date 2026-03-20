@@ -1,105 +1,150 @@
 import type { ArcDatum } from '@openglobes/core';
 
+// ---------------------------------------------------------------------------
+// Migration route data — major fish migration corridors with ALL species
+// known to use each route. In reality, many species share corridors.
+// ---------------------------------------------------------------------------
+
 const SALMON: [string, string] = ['#ef476f', '#f9c74f'];
 const TUNA: [string, string] = ['#4cc9f0', '#56d6a0'];
 const EEL: [string, string] = ['#b185db', '#4cc9f0'];
 const SHARK: [string, string] = ['#ef476f', '#48bfe6'];
 const OTHER: [string, string] = ['#56d6a0', '#f9c74f'];
 
-export const MIGRATION_ARCS: ArcDatum[] = [
-  // --- Atlantic Salmon ---
-  { id: 'atlantic-salmon-1', label: 'Atlantic Salmon', startLat: 63, startLng: 8, endLat: 65, endLng: -20, color: SALMON, width: 0.6, speed: 6000, particle: true, particleSpeed: 2500 },
-  { id: 'atlantic-salmon-2', label: 'Atlantic Salmon', startLat: 65, startLng: -20, endLat: 62, endLng: -48, color: SALMON, width: 0.6, speed: 6000, particle: true, particleSpeed: 2500 },
-  { id: 'atlantic-salmon-3', label: 'Atlantic Salmon', startLat: 62, startLng: -48, endLat: 63, endLng: 8, color: SALMON, width: 0.6, speed: 6000, particle: true, particleSpeed: 2500 },
+/** Species that use each named route */
+export interface MigrationRoute {
+  name: string;
+  species: string[];
+  description: string;
+}
 
-  // --- Sockeye Salmon ---
-  { id: 'sockeye-salmon', label: 'Sockeye Salmon', startLat: 54, startLng: -155, endLat: 58, endLng: -157, color: SALMON, width: 0.6, speed: 5000, particle: true, particleSpeed: 2000 },
-
-  // --- Chinook Salmon ---
-  { id: 'chinook-salmon', label: 'Chinook Salmon', startLat: 45, startLng: -130, endLat: 46, endLng: -124, color: SALMON, width: 0.6, speed: 5000, particle: true, particleSpeed: 2000 },
-
-  // --- Pink Salmon ---
-  { id: 'pink-salmon', label: 'Pink Salmon', startLat: 50, startLng: -170, endLat: 56, endLng: 160, color: SALMON, width: 0.6, speed: 6000, particle: true, particleSpeed: 2200 },
-
-  // --- Bluefin Tuna ---
-  { id: 'bluefin-tuna-1', label: 'Bluefin Tuna', startLat: 38, startLng: 15, endLat: 35, endLng: -30, color: TUNA, width: 0.6, speed: 4500, particle: true, particleSpeed: 1600 },
-  { id: 'bluefin-tuna-2', label: 'Bluefin Tuna', startLat: 35, startLng: -30, endLat: 25, endLng: -88, color: TUNA, width: 0.6, speed: 4500, particle: true, particleSpeed: 1600 },
-
-  // --- Yellowfin Tuna ---
-  { id: 'yellowfin-tuna-1', label: 'Yellowfin Tuna', startLat: 10, startLng: -110, endLat: 5, endLng: -140, color: TUNA, width: 0.6, speed: 4000, particle: true, particleSpeed: 1500 },
-  { id: 'yellowfin-tuna-2', label: 'Yellowfin Tuna', startLat: 5, startLng: -140, endLat: 20, endLng: -156, color: TUNA, width: 0.6, speed: 4000, particle: true, particleSpeed: 1500 },
-
-  // --- Skipjack Tuna ---
-  { id: 'skipjack-tuna', label: 'Skipjack Tuna', startLat: -5, startLng: 150, endLat: 0, endLng: -170, color: TUNA, width: 0.6, speed: 4000, particle: true, particleSpeed: 1500 },
-
-  // --- European Eel ---
-  { id: 'european-eel-1', label: 'European Eel', startLat: 51, startLng: 0, endLat: 45, endLng: -5, color: EEL, width: 0.6, speed: 8000, particle: true, particleSpeed: 3000 },
-  { id: 'european-eel-2', label: 'European Eel', startLat: 45, startLng: -5, endLat: 25, endLng: -65, color: EEL, width: 0.6, speed: 8000, particle: true, particleSpeed: 3000 },
-
-  // --- Japanese Eel ---
-  { id: 'japanese-eel', label: 'Japanese Eel', startLat: 35, startLng: 136, endLat: 15, endLng: 142, color: EEL, width: 0.6, speed: 7000, particle: true, particleSpeed: 2800 },
-
-  // --- American Eel ---
-  { id: 'american-eel', label: 'American Eel', startLat: 40, startLng: -74, endLat: 25, endLng: -65, color: EEL, width: 0.6, speed: 7500, particle: true, particleSpeed: 3000 },
-
-  // --- Great White Shark ---
-  { id: 'great-white-1', label: 'Great White Shark', startLat: -34, startLng: 26, endLat: -30, endLng: 60, color: SHARK, width: 1.0, speed: 5000, particle: true, particleSpeed: 1800 },
-  { id: 'great-white-2', label: 'Great White Shark', startLat: -30, startLng: 60, endLat: -32, endLng: 115, color: SHARK, width: 1.0, speed: 5000, particle: true, particleSpeed: 1800 },
-
-  // --- Whale Shark (Indo-Pacific) ---
-  { id: 'whale-shark-indo-1', label: 'Whale Shark', startLat: -22, startLng: 114, endLat: -8, endLng: 115, color: SHARK, width: 1.0, speed: 6000, particle: true, particleSpeed: 2200 },
-  { id: 'whale-shark-indo-2', label: 'Whale Shark', startLat: -8, startLng: 115, endLat: 4, endLng: 73, color: SHARK, width: 1.0, speed: 6000, particle: true, particleSpeed: 2200 },
-
-  // --- Whale Shark (Americas) ---
-  { id: 'whale-shark-am-1', label: 'Whale Shark (Caribbean)', startLat: 21, startLng: -87, endLat: 17, endLng: -88, color: SHARK, width: 1.0, speed: 6000, particle: true, particleSpeed: 2200 },
-  { id: 'whale-shark-am-2', label: 'Whale Shark (Caribbean)', startLat: 17, startLng: -88, endLat: 16, endLng: -86, color: SHARK, width: 1.0, speed: 6000, particle: true, particleSpeed: 2200 },
-
-  // --- Blue Shark ---
-  { id: 'blue-shark-1', label: 'Blue Shark', startLat: 50, startLng: -5, endLat: 38, endLng: -28, color: SHARK, width: 0.6, speed: 4500, particle: true, particleSpeed: 1700 },
-  { id: 'blue-shark-2', label: 'Blue Shark', startLat: 38, startLng: -28, endLat: 18, endLng: -65, color: SHARK, width: 0.6, speed: 4500, particle: true, particleSpeed: 1700 },
-
-  // --- Hammerhead Shark ---
-  { id: 'hammerhead-1', label: 'Hammerhead Shark', startLat: 0, startLng: -91, endLat: 5, endLng: -87, color: SHARK, width: 0.6, speed: 4000, particle: true, particleSpeed: 1600 },
-  { id: 'hammerhead-2', label: 'Hammerhead Shark', startLat: 5, startLng: -87, endLat: 4, endLng: -81, color: SHARK, width: 0.6, speed: 4000, particle: true, particleSpeed: 1600 },
-
-  // --- Mahi-mahi ---
-  { id: 'mahi-mahi-1', label: 'Mahi-mahi', startLat: 30, startLng: -78, endLat: 25, endLng: -77, color: OTHER, width: 0.6, speed: 5000, particle: true, particleSpeed: 2000 },
-  { id: 'mahi-mahi-2', label: 'Mahi-mahi', startLat: 25, startLng: -77, endLat: 18, endLng: -75, color: OTHER, width: 0.6, speed: 5000, particle: true, particleSpeed: 2000 },
-
-  // --- Swordfish ---
-  { id: 'swordfish', label: 'Swordfish', startLat: 40, startLng: 18, endLat: 45, endLng: -20, color: OTHER, width: 0.6, speed: 4500, particle: true, particleSpeed: 1800 },
-
-  // --- Blue Marlin ---
-  { id: 'marlin-1', label: 'Blue Marlin', startLat: 20, startLng: -156, endLat: 7, endLng: 171, color: OTHER, width: 0.6, speed: 5500, particle: true, particleSpeed: 2000 },
-  { id: 'marlin-2', label: 'Blue Marlin', startLat: 7, startLng: 171, endLat: -18, endLng: 178, color: OTHER, width: 0.6, speed: 5500, particle: true, particleSpeed: 2000 },
-
-  // --- Arctic Char ---
-  { id: 'arctic-char-1', label: 'Arctic Char', startLat: 70, startLng: 20, endLat: 78, endLng: 15, color: SALMON, width: 0.6, speed: 7000, particle: true, particleSpeed: 2800 },
-  { id: 'arctic-char-2', label: 'Arctic Char', startLat: 78, startLng: 15, endLat: 70, endLng: 20, color: SALMON, width: 0.6, speed: 7000, particle: true, particleSpeed: 2800 },
-
-  // --- Leatherback Sea Turtle (bonus) ---
-  { id: 'leatherback-1', label: 'Leatherback Sea Turtle', startLat: 35, startLng: -75, endLat: 38, endLng: -28, color: OTHER, width: 0.6, speed: 7500, particle: true, particleSpeed: 2800 },
-  { id: 'leatherback-2', label: 'Leatherback Sea Turtle', startLat: 38, startLng: -28, endLat: 15, endLng: -24, color: OTHER, width: 0.6, speed: 7500, particle: true, particleSpeed: 2800 },
+export const MIGRATION_ROUTES: MigrationRoute[] = [
+  {
+    name: 'North Atlantic Loop',
+    species: ['Atlantic Salmon', 'Atlantic Cod', 'Atlantic Herring', 'Atlantic Mackerel', 'Capelin', 'Blue Whiting'],
+    description: 'Norway → Iceland → Greenland → return. Shared by salmon, cod, and pelagic shoals following the North Atlantic Drift.',
+  },
+  {
+    name: 'North Pacific Salmon Run',
+    species: ['Sockeye Salmon', 'Chinook Salmon', 'Chum Salmon', 'Coho Salmon', 'Pink Salmon', 'Steelhead Trout'],
+    description: 'Open Pacific → Alaskan/BC rivers. All Pacific salmon species share this corridor.',
+  },
+  {
+    name: 'Kamchatka Circuit',
+    species: ['Pink Salmon', 'Chum Salmon', 'Walleye Pollock', 'Pacific Herring'],
+    description: 'North Pacific → Kamchatka Peninsula. Major spawning route for Asian salmon stocks.',
+  },
+  {
+    name: 'Mediterranean–Atlantic Circuit',
+    species: ['Bluefin Tuna', 'Swordfish', 'Albacore Tuna', 'Bonito', 'Mediterranean Spearfish'],
+    description: 'Mediterranean Sea → mid-Atlantic → Gulf of Mexico. Bluefin tuna spawn in the Med, feed in the Atlantic.',
+  },
+  {
+    name: 'Central Pacific Tuna Highway',
+    species: ['Yellowfin Tuna', 'Bigeye Tuna', 'Skipjack Tuna', 'Blue Marlin', 'Wahoo', 'Mahi-mahi'],
+    description: 'East Pacific → Central Pacific → Hawaii. The world\'s busiest tuna corridor.',
+  },
+  {
+    name: 'West Pacific Skipjack Run',
+    species: ['Skipjack Tuna', 'Yellowfin Tuna', 'Frigate Mackerel', 'Rainbow Runner'],
+    description: 'Coral Sea → Central Pacific. Skipjack follow warm currents east seasonally.',
+  },
+  {
+    name: 'Sargasso Sea Eel Migration',
+    species: ['European Eel', 'American Eel', 'Conger Eel'],
+    description: 'Rivers of Europe/America → Sargasso Sea. One-way spawning migration — adults die after breeding.',
+  },
+  {
+    name: 'Japanese Eel Spawning Run',
+    species: ['Japanese Eel', 'Giant Mottled Eel'],
+    description: 'Japanese rivers → Mariana Ridge. Deep-ocean spawning, larvae drift back on currents.',
+  },
+  {
+    name: 'Great White Highway',
+    species: ['Great White Shark', 'Shortfin Mako', 'Blue Shark', 'Porbeagle'],
+    description: 'South Africa → Indian Ocean → Australia. Pelagic shark corridor following seal colonies.',
+  },
+  {
+    name: 'Whale Shark Indo-Pacific',
+    species: ['Whale Shark', 'Manta Ray', 'Mobula Ray', 'Remora'],
+    description: 'Ningaloo Reef → Indonesia → Maldives. Filter feeders follow plankton blooms.',
+  },
+  {
+    name: 'Caribbean Megafauna Route',
+    species: ['Whale Shark', 'Manta Ray', 'Tarpon', 'Permit', 'Bonefish', 'Nassau Grouper'],
+    description: 'Yucatán → Belize → Honduras. Seasonal aggregation of large pelagics and reef spawners.',
+  },
+  {
+    name: 'North Atlantic Shark Corridor',
+    species: ['Blue Shark', 'Shortfin Mako', 'Porbeagle', 'Basking Shark', 'Thresher Shark'],
+    description: 'UK/Ireland → Azores → Caribbean. Sharks follow the Gulf Stream south in winter.',
+  },
+  {
+    name: 'Galápagos Triangle',
+    species: ['Hammerhead Shark', 'Whale Shark', 'Galápagos Shark', 'Mola Mola', 'Yellowfin Tuna'],
+    description: 'Galápagos → Cocos Island → Malpelo. Upwelling hotspot connecting three marine reserves.',
+  },
+  {
+    name: 'Gulf Stream Express',
+    species: ['Mahi-mahi', 'Wahoo', 'Sailfish', 'Blue Marlin', 'Cobia', 'King Mackerel'],
+    description: 'Florida → Bahamas → Caribbean. Pelagic gamefish ride the Gulf Stream current.',
+  },
+  {
+    name: 'Trans-Pacific Marlin Route',
+    species: ['Blue Marlin', 'Black Marlin', 'Striped Marlin', 'Shortbill Spearfish'],
+    description: 'Hawaii → Marshall Islands → Fiji. Billfish follow warm equatorial waters.',
+  },
+  {
+    name: 'Arctic Char Circuit',
+    species: ['Arctic Char', 'Arctic Cisco', 'Greenland Halibut', 'Polar Cod'],
+    description: 'Norwegian Sea → Svalbard → return. Cold-water species follow seasonal ice edge.',
+  },
+  {
+    name: 'Leatherback Atlantic Crossing',
+    species: ['Leatherback Sea Turtle', 'Loggerhead Sea Turtle', 'Ocean Sunfish', 'Blue Shark'],
+    description: 'Cape Hatteras → Azores → Cape Verde. Jellyfish feeders cross the open Atlantic.',
+  },
 ];
 
-export const MIGRATION_SPECIES = new Set([
-  'atlantic-salmon',
-  'sockeye-salmon',
-  'chinook-salmon',
-  'pink-salmon',
-  'bluefin-tuna',
-  'yellowfin-tuna',
-  'skipjack-tuna',
-  'european-eel',
-  'japanese-eel',
-  'american-eel',
-  'great-white-shark',
-  'whale-shark',
-  'blue-shark',
-  'hammerhead-shark',
-  'mahi-mahi',
-  'swordfish',
-  'blue-marlin',
-  'arctic-char',
-  'leatherback-sea-turtle',
-]);
+// Build arcs from routes
+export const MIGRATION_ARCS: ArcDatum[] = [];
+
+// Route arc coordinates (same geometry as before, mapped to route names)
+const ROUTE_ARCS: Record<string, { coords: [number,number,number,number][]; color: [string,string]; width: number; speed: number; pSpeed: number }> = {
+  'North Atlantic Loop': { coords: [[63,8,65,-20],[65,-20,62,-48],[62,-48,63,8]], color: SALMON, width: 0.6, speed: 6000, pSpeed: 2500 },
+  'North Pacific Salmon Run': { coords: [[54,-155,58,-157],[45,-130,46,-124]], color: SALMON, width: 0.6, speed: 5000, pSpeed: 2000 },
+  'Kamchatka Circuit': { coords: [[50,-170,56,160]], color: SALMON, width: 0.6, speed: 6000, pSpeed: 2200 },
+  'Mediterranean–Atlantic Circuit': { coords: [[38,15,35,-30],[35,-30,25,-88]], color: TUNA, width: 0.6, speed: 4500, pSpeed: 1600 },
+  'Central Pacific Tuna Highway': { coords: [[10,-110,5,-140],[5,-140,20,-156]], color: TUNA, width: 0.6, speed: 4000, pSpeed: 1500 },
+  'West Pacific Skipjack Run': { coords: [[-5,150,0,-170]], color: TUNA, width: 0.6, speed: 4000, pSpeed: 1500 },
+  'Sargasso Sea Eel Migration': { coords: [[51,0,45,-5],[45,-5,25,-65],[40,-74,25,-65]], color: EEL, width: 0.6, speed: 8000, pSpeed: 3000 },
+  'Japanese Eel Spawning Run': { coords: [[35,136,15,142]], color: EEL, width: 0.6, speed: 7000, pSpeed: 2800 },
+  'Great White Highway': { coords: [[-34,26,-30,60],[-30,60,-32,115]], color: SHARK, width: 1.0, speed: 5000, pSpeed: 1800 },
+  'Whale Shark Indo-Pacific': { coords: [[-22,114,-8,115],[-8,115,4,73]], color: SHARK, width: 1.0, speed: 6000, pSpeed: 2200 },
+  'Caribbean Megafauna Route': { coords: [[21,-87,17,-88],[17,-88,16,-86]], color: SHARK, width: 1.0, speed: 6000, pSpeed: 2200 },
+  'North Atlantic Shark Corridor': { coords: [[50,-5,38,-28],[38,-28,18,-65]], color: SHARK, width: 0.6, speed: 4500, pSpeed: 1700 },
+  'Galápagos Triangle': { coords: [[0,-91,5,-87],[5,-87,4,-81]], color: SHARK, width: 0.6, speed: 4000, pSpeed: 1600 },
+  'Gulf Stream Express': { coords: [[30,-78,25,-77],[25,-77,18,-75]], color: OTHER, width: 0.6, speed: 5000, pSpeed: 2000 },
+  'Trans-Pacific Marlin Route': { coords: [[20,-156,7,171],[7,171,-18,178]], color: OTHER, width: 0.6, speed: 5500, pSpeed: 2000 },
+  'Arctic Char Circuit': { coords: [[70,20,78,15],[78,15,70,20]], color: SALMON, width: 0.6, speed: 7000, pSpeed: 2800 },
+  'Leatherback Atlantic Crossing': { coords: [[35,-75,38,-28],[38,-28,15,-24]], color: OTHER, width: 0.6, speed: 7500, pSpeed: 2800 },
+};
+
+let arcIdx = 0;
+for (const route of MIGRATION_ROUTES) {
+  const cfg = ROUTE_ARCS[route.name];
+  if (!cfg) continue;
+  for (const [sLat, sLng, eLat, eLng] of cfg.coords) {
+    MIGRATION_ARCS.push({
+      id: `mig-${arcIdx++}`,
+      label: route.name,
+      startLat: sLat, startLng: sLng,
+      endLat: eLat, endLng: eLng,
+      color: cfg.color,
+      width: cfg.width,
+      speed: cfg.speed,
+      particle: true,
+      particleSpeed: cfg.pSpeed,
+    });
+  }
+}

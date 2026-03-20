@@ -12,7 +12,7 @@ import { FishNearMe } from './FishNearMe';
 import { DiscoverButton } from './DiscoverButton';
 import { ListPanel } from './ListPanel';
 import { flyTo } from '../utils/flyTo';
-import { MIGRATION_ARCS } from '../data/migrations';
+import { MIGRATION_ARCS, MIGRATION_ROUTES } from '../data/migrations';
 import { OCEAN_CURRENTS, CURRENTS_DEFAULT_VISIBLE } from '../data/currents';
 import { GEO_LABELS } from '../data/geoLabels';
 
@@ -92,25 +92,17 @@ export function FishGlobe() {
     setTimeout(() => setSelectedPoint(point), 1500);
   }, []);
 
-  // ── Migration species list for ListPanel ───────────────────────
-  const migrationSpecies = useMemo(() => {
-    const unique = new Map<string, { name: string; legs: number }>();
-    for (const arc of MIGRATION_ARCS) {
-      if (arc.label) {
-        const existing = unique.get(arc.label);
-        if (existing) {
-          existing.legs++;
-        } else {
-          unique.set(arc.label, { name: arc.label, legs: 1 });
-        }
-      }
-    }
-    return Array.from(unique.values()).map(({ name, legs }) => ({
-      id: name,
-      name,
-      extra: `${legs} leg${legs > 1 ? 's' : ''} route`,
+  // ── Migration routes list for ListPanel ───────────────────────
+  const migrationRouteItems = useMemo(() => {
+    return MIGRATION_ROUTES.map(r => ({
+      id: r.name,
+      name: r.name,
+      extra: `${r.species.length} species: ${r.species.slice(0, 3).join(', ')}${r.species.length > 3 ? '…' : ''}`,
     }));
   }, []);
+
+  // State for expanded route detail
+  const [selectedRoute, setSelectedRoute] = useState<string | null>(null);
 
   const spatial = useSpatialIndex({
     tileBaseUrl: '/data',
@@ -431,7 +423,7 @@ export function FishGlobe() {
               {showMigrations && (
                 <button
                   type="button"
-                  onClick={() => setListPanel({ title: 'Migration Routes', items: migrationSpecies })}
+                  onClick={() => setListPanel({ title: 'Migration Routes', items: migrationRouteItems })}
                   style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--og-text-tertiary)', fontSize: 12, padding: '0 4px' }}
                   aria-label="Migration species info"
                 >
@@ -650,7 +642,7 @@ export function FishGlobe() {
               {showMigrations && (
                 <button
                   type="button"
-                  onClick={() => setListPanel({ title: 'Migration Routes', items: migrationSpecies })}
+                  onClick={() => setListPanel({ title: 'Migration Routes', items: migrationRouteItems })}
                   style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--og-text-tertiary)', fontSize: 12, padding: '0 4px' }}
                   aria-label="Migration species info"
                 >
@@ -747,6 +739,15 @@ export function FishGlobe() {
           items={listPanel.items}
           onClose={() => setListPanel(null)}
           onItemClick={(id) => {
+            // Check if this is a migration route name — show species list
+            const route = MIGRATION_ROUTES.find(r => r.name === id);
+            if (route) {
+              setListPanel({
+                title: route.name,
+                items: route.species.map(s => ({ id: s, name: s, extra: route.description })),
+              });
+              return;
+            }
             // Try exact ID match first, then name match
             const found = allPointsRef.current.find(p => p.id === id)
               || allPointsRef.current.find(p =>
