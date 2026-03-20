@@ -6,7 +6,7 @@ import { FishDetail } from './FishDetail';
 import SearchBar from './SearchBar';
 import { ZoomControls } from './ZoomControls';
 // ThemeToggle removed — Night Mode chip added to Overlays section instead
-import { DepthEffect } from './DepthEffect';
+// DepthEffect removed — user found it distracting
 import { SwimmingFishManager } from './SwimmingFish';
 import { FishNearMe } from './FishNearMe';
 import { DiscoverButton } from './DiscoverButton';
@@ -30,7 +30,7 @@ export function FishGlobe() {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [showMigrations, setShowMigrations] = useState(true);
   const [showCurrents, setShowCurrents] = useState(CURRENTS_DEFAULT_VISIBLE);
-  const [depthEffect, setDepthEffect] = useState<number | null>(null);
+  // depthEffect removed
   const [activeMonth, setActiveMonth] = useState<number | null>(null);
 
   // ── Scene refs for flyTo ─────────────────────────────────────────
@@ -88,13 +88,22 @@ export function FishGlobe() {
       const distChanged = Math.abs(distance - lastDistRef.current) > 0.5;
       if (distChanged || lastDistRef.current === 0) {
         lastDistRef.current = distance;
-        const halfArc = Math.asin(Math.min(1, 100 / distance)) * (180 / Math.PI);
-        const bounds = {
-          north: Math.min(85, halfArc),
-          south: Math.max(-85, -halfArc),
-          east: Math.min(180, halfArc),
-          west: Math.max(-180, -halfArc),
-        };
+
+        // At low zoom (far camera), load ALL tiles — there are very few
+        // (z0=1, z1=4, z2=16, z3=64). At higher zoom, estimate visible area.
+        let bounds;
+        if (distance > 250) {
+          // Far away — full globe
+          bounds = { north: 85, south: -85, east: 180, west: -180 };
+        } else {
+          const halfArc = Math.asin(Math.min(1, 100 / distance)) * (180 / Math.PI);
+          bounds = {
+            north: Math.min(85, halfArc),
+            south: Math.max(-85, -halfArc),
+            east: Math.min(180, halfArc),
+            west: Math.max(-180, -halfArc),
+          };
+        }
         updateCameraRef.current(distance, bounds);
 
         if (throttleRef.current) clearTimeout(throttleRef.current);
@@ -111,21 +120,7 @@ export function FishGlobe() {
     setFilterValues((prev) => ({ ...prev, [key]: value }));
   }, []);
 
-  // ── Depth effect — fetch species depth when a point is selected ──
-  useEffect(() => {
-    if (!selectedPoint) { setDepthEffect(null); return; }
-    fetch(`/data/species/${selectedPoint.id}.json`)
-      .then((r) => r.json())
-      .then((data) => {
-        const depthStr = data?.metadata?.depth;
-        if (depthStr) {
-          const match = depthStr.match(/(\d+)/g);
-          const maxDepth = match ? parseInt(match[match.length - 1]) : 0;
-          if (maxDepth > 200) setDepthEffect(maxDepth);
-        }
-      })
-      .catch(() => {});
-  }, [selectedPoint?.id]);
+  // Depth effect removed — user found it distracting
 
   // ── Convert clusters to renderable pseudo-points at low zoom ──────
   const clusterPoints = useMemo((): PointItem[] => {
@@ -605,10 +600,7 @@ export function FishGlobe() {
         <FishDetail point={selectedPoint} onClose={() => setSelectedPoint(null)} />
       )}
 
-      {/* ── Depth effect overlay ──────────────────────────────────────── */}
-      {depthEffect !== null && (
-        <DepthEffect depth={depthEffect} onComplete={() => setDepthEffect(null)} />
-      )}
+      {/* Depth effect overlay removed */}
 
       {/* ── Zoom controls — bottom-right ─────────────────────────────── */}
       <ZoomControls

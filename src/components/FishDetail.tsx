@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import type { PointItem } from '@openglobes/core';
 import { SCHOOLING_SPECIES } from '../data/schooling';
-import { DepthStrip } from './DepthStrip';
+// DepthStrip removed — user found it confusing
 import { SizeComparison } from './SizeComparison';
 
 const parseCm = (str: string): number | null => {
@@ -264,7 +264,7 @@ export function FishDetail({ point, onClose }: FishDetailProps) {
                 style={{
                   width: '100%',
                   height: '100%',
-                  objectFit: 'cover',
+                  objectFit: 'contain',
                   mixBlendMode: 'screen',
                 }}
                 onError={(e) => {
@@ -428,32 +428,7 @@ export function FishDetail({ point, onClose }: FishDetailProps) {
           ) : null;
         })()}
 
-        {/* Depth profile */}
-        {detail && detail.metadata.depth && (() => {
-          const parsed = parseDepth(detail.metadata.depth);
-          return parsed ? (
-            <div style={{ marginBottom: 16 }}>
-              <div
-                className="og-section-label"
-                style={{ marginBottom: 8 }}
-              >
-                DEPTH PROFILE
-              </div>
-              <div
-                style={{
-                  fontFamily: 'var(--og-font-body)',
-                  fontSize: 10,
-                  color: 'var(--og-text-tertiary)',
-                  marginBottom: 6,
-                  opacity: 0.7,
-                }}
-              >
-                Typical depth range for this species
-              </div>
-              <DepthStrip depthMin={parsed.min} depthMax={parsed.max} />
-            </div>
-          ) : null;
-        })()}
+        {/* Depth profile removed — user found it confusing */}
 
         {/* Links row */}
         {detail && detail.links.length > 0 && (
