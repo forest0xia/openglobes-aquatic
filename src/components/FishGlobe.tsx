@@ -8,6 +8,9 @@ import { ZoomControls } from './ZoomControls';
 import { ThemeToggle } from './ThemeToggle';
 import { DepthEffect } from './DepthEffect';
 import { SwimmingFishManager } from './SwimmingFish';
+import { FishNearMe } from './FishNearMe';
+import { DiscoverButton } from './DiscoverButton';
+import { flyTo } from '../utils/flyTo';
 import { MIGRATION_ARCS } from '../data/migrations';
 import { OCEAN_CURRENTS, CURRENTS_DEFAULT_VISIBLE } from '../data/currents';
 
@@ -29,10 +32,14 @@ export function FishGlobe() {
   const [depthEffect, setDepthEffect] = useState<number | null>(null);
   const [activeMonth, setActiveMonth] = useState<number | null>(null);
 
+  // ── Scene refs for flyTo ─────────────────────────────────────────
+  const sceneRefsRef = useRef<GlobeSceneRefs | null>(null);
+
   // ── Swimming fish sprites ─────────────────────────────────────────
   const fishManagerRef = useRef<SwimmingFishManager | null>(null);
 
   const handleSceneReady = useCallback((refs: GlobeSceneRefs) => {
+    sceneRefsRef.current = refs;
     fishManagerRef.current = new SwimmingFishManager(refs.scene, refs.getCoords);
   }, []);
 
@@ -48,6 +55,17 @@ export function FishGlobe() {
     };
   }, []);
   // ── end swimming fish sprites ─────────────────────────────────────
+
+  // ── flyTo handler for FishNearMe ────────────────────────────────
+  const handleFlyTo = useCallback((lat: number, lng: number) => {
+    if (sceneRefsRef.current) flyTo(sceneRefsRef.current, lat, lng);
+  }, []);
+
+  // ── Discover handler — fly to a rare fish + select it ──────────
+  const handleDiscover = useCallback((point: PointItem) => {
+    if (sceneRefsRef.current) flyTo(sceneRefsRef.current, point.lat, point.lng, { duration: 2500 });
+    setTimeout(() => setSelectedPoint(point), 1500);
+  }, []);
 
   const spatial = useSpatialIndex({
     tileBaseUrl: '/data',
@@ -552,6 +570,12 @@ export function FishGlobe() {
           if (canvas) canvas.dispatchEvent(new WheelEvent('wheel', { deltaY: 300, bubbles: true }));
         }}
       />
+
+      {/* ── Discover rare fish — bottom-right, above zoom ──────────── */}
+      <DiscoverButton points={displayPoints} onDiscover={handleDiscover} />
+
+      {/* ── Fish Near Me — bottom-left ─────────────────────────────── */}
+      <FishNearMe points={displayPoints} onFlyTo={handleFlyTo} />
 
       {/* ── Attribution — bottom-center ──────────────────────────────── */}
       <div
