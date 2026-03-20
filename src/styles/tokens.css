@@ -260,6 +260,11 @@
   stroke: var(--og-text-primary);
 }
 
+/* --- Fish sprite/thumbnail (mix-blend-mode for dark bg) ------------ */
+.fish-sprite {
+  mix-blend-mode: screen;  /* makes dark backgrounds invisible, light parts glow */
+}
+
 /* --- Drag handle (mobile bottom sheets) ---------------------------- */
 .og-drag-handle {
   display: block;

@@ -31,8 +31,23 @@ export const bioluminescenceTheme: GlobeTheme = {
   atmosphereColor: '#001122',
   backgroundColor: '#000000',
 
-  pointColor: (item: PointItem) => RARITY_COLORS[item.rarity as number] ?? '#5cd4ff',
-  pointSize: (item: PointItem) => RARITY_SIZES[item.rarity as number] ?? 0.156,
+  pointColor: (item: PointItem) => {
+    if ((item as Record<string, unknown>)._isCluster) {
+      const count = (item as Record<string, unknown>)._count as number;
+      if (count > 500) return '#ff5c8a';
+      if (count > 100) return '#ffda5c';
+      if (count > 20) return '#6eeab8';
+      return '#5cd4ff';
+    }
+    return RARITY_COLORS[item.rarity as number] ?? '#5cd4ff';
+  },
+  pointSize: (item: PointItem) => {
+    if ((item as Record<string, unknown>)._isCluster) {
+      const count = (item as Record<string, unknown>)._count as number;
+      return Math.min(4, 0.6 + Math.log10(count + 1) * 0.6);
+    }
+    return RARITY_SIZES[item.rarity as number] ?? 0.156;
+  },
   clusterColor: (count: number) => {
     if (count > 500) return '#ff5c8a';
     if (count > 100) return '#ffda5c';

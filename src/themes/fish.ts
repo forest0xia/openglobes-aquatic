@@ -26,8 +26,23 @@ export const fishTheme: GlobeTheme = {
   atmosphereColor: '#4cc9f0',
   backgroundColor: '#050a12',
 
-  pointColor: (item: PointItem) => RARITY_COLORS[item.rarity as number] ?? '#48bfe6',
-  pointSize: (item: PointItem) => RARITY_SIZES[item.rarity as number] ?? 0.12,
+  pointColor: (item: PointItem) => {
+    if ((item as Record<string, unknown>)._isCluster) {
+      const count = (item as Record<string, unknown>)._count as number;
+      if (count > 500) return '#ef476f';
+      if (count > 100) return '#f9c74f';
+      if (count > 20) return '#56d6a0';
+      return '#48bfe6';
+    }
+    return RARITY_COLORS[item.rarity as number] ?? '#48bfe6';
+  },
+  pointSize: (item: PointItem) => {
+    if ((item as Record<string, unknown>)._isCluster) {
+      const count = (item as Record<string, unknown>)._count as number;
+      return Math.min(3, 0.5 + Math.log10(count + 1) * 0.5);
+    }
+    return RARITY_SIZES[item.rarity as number] ?? 0.12;
+  },
   clusterColor: (count: number) => {
     if (count > 500) return '#ef476f';
     if (count > 100) return '#f9c74f';

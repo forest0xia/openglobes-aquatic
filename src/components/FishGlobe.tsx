@@ -127,31 +127,65 @@ export function FishGlobe() {
       .catch(() => {});
   }, [selectedPoint?.id]);
 
-  // ── Client-side filtering (memoized to avoid unnecessary re-renders) ──
-  const displayPoints = useMemo(() => {
-    return (spatial.isClusterZoom ? [] : spatial.points).filter(
-      (p) => {
-        // Water type filter: if any chips are selected, point must match one
-        const wt = filterValues.waterType;
-        if (Array.isArray(wt) && wt.length > 0) {
-          if (!wt.includes((p as Record<string, unknown>).waterType)) return false;
-        }
-        // Rarity filter: if any selected, point must match
-        const rar = filterValues.rarity;
-        if (Array.isArray(rar) && rar.length > 0) {
-          const RARITY_MAP: Record<number, string> = { 0: 'Common', 1: 'Uncommon', 2: 'Rare', 3: 'Legendary' };
-          const pointRarityLabel = RARITY_MAP[(p.rarity as number) ?? 0] ?? 'Common';
-          if (!rar.includes(pointRarityLabel)) return false;
-        }
-        return true;
-      },
-    );
-  }, [spatial.isClusterZoom, spatial.points, filterValues.waterType, filterValues.rarity]);
+  // ── Convert clusters to renderable pseudo-points at low zoom ──────
+  const clusterPoints = useMemo((): PointItem[] => {
+    if (!spatial.isClusterZoom || spatial.clusters.length === 0) return [];
+    return spatial.clusters.map((c, i) => ({
+      id: `cluster-${i}`,
+      lat: c.lat,
+      lng: c.lng,
+      name: `${c.count.toLocaleString()} species`,
+      rarity: c.count > 500 ? 3 : c.count > 100 ? 2 : c.count > 20 ? 1 : 0,
+      _isCluster: true,
+      _count: c.count,
+      _topItems: c.topItems,
+    } as PointItem));
+  }, [spatial.isClusterZoom, spatial.clusters]);
 
-  // ── Update swimming fish when visible points change ──────────────
+  // ── Client-side filtering (memoized) ────────────────────────────
+  const filteredPoints = useMemo(() => {
+    return spatial.points.filter((p) => {
+      const wt = filterValues.waterType;
+      if (Array.isArray(wt) && wt.length > 0) {
+        if (!wt.includes((p as Record<string, unknown>).waterType)) return false;
+      }
+      const rar = filterValues.rarity;
+      if (Array.isArray(rar) && rar.length > 0) {
+        const RARITY_MAP: Record<number, string> = { 0: 'Common', 1: 'Uncommon', 2: 'Rare', 3: 'Legendary' };
+        const pointRarityLabel = RARITY_MAP[(p.rarity as number) ?? 0] ?? 'Common';
+        if (!rar.includes(pointRarityLabel)) return false;
+      }
+      return true;
+    });
+  }, [spatial.points, filterValues.waterType, filterValues.rarity]);
+
+  // Show clusters at low zoom, filtered points at high zoom
+  const displayPoints = spatial.isClusterZoom ? clusterPoints : filteredPoints;
+
+  // ── Aggregate species count across all zoom levels ──────────────
+  const totalSpeciesCount = useMemo(() => {
+    if (spatial.isClusterZoom && spatial.clusters.length > 0) {
+      return spatial.clusters.reduce((sum, c) => sum + c.count, 0);
+    }
+    return filteredPoints.length;
+  }, [spatial.isClusterZoom, spatial.clusters, filteredPoints]);
+
+  // ── Update swimming fish (only for real points, not clusters) ────
   useEffect(() => {
-    fishManagerRef.current?.updatePoints(displayPoints);
-  }, [displayPoints]);
+    fishManagerRef.current?.updatePoints(spatial.isClusterZoom ? [] : filteredPoints);
+  }, [spatial.isClusterZoom, filteredPoints]);
+
+  // ── Handle point/cluster clicks ────────────────────────────────
+  const handlePointClick = useCallback((point: PointItem) => {
+    // If it's a cluster, zoom into it instead of opening detail
+    if ((point as Record<string, unknown>)._isCluster) {
+      if (sceneRefsRef.current) {
+        flyTo(sceneRefsRef.current, point.lat, point.lng, { duration: 1500, altitude: 0 });
+      }
+      return;
+    }
+    setSelectedPoint(point);
+  }, []);
 
   // Pass only waterType + depth to FilterPanel; render rarity as custom legend
   const coreFilters = theme.globeTheme.filters.filter((f) => f.key !== 'rarity' && f.key !== 'depth');
@@ -174,14 +208,14 @@ export function FishGlobe() {
         points={displayPoints}
         arcs={showMigrations ? MIGRATION_ARCS : []}
         trails={showCurrents ? OCEAN_CURRENTS : []}
-        onPointClick={setSelectedPoint}
+        onPointClick={handlePointClick}
         onCameraChange={handleCameraChange}
         onSceneReady={handleSceneReady}
         onFrame={handleFrame}
       />
 
       {/* ── Search bar — top-center ──────────────────────────────────── */}
-      <SearchBar totalSpecies={4677} />
+      <SearchBar totalSpecies={totalSpeciesCount || 4677} />
 
       {/* Theme toggle removed — Night Mode is in Overlays section */}
 
@@ -213,9 +247,7 @@ export function FishGlobe() {
               Filters
             </span>
             <span className="og-mono-sm" style={{ color: 'var(--og-accent)' }}>
-              {spatial.isClusterZoom
-                ? 'Zoom in to filter'
-                : `${displayPoints.length.toLocaleString()} / ${spatial.points.length.toLocaleString()}`}
+              {totalSpeciesCount.toLocaleString()}
             </span>
           </div>
 
@@ -420,9 +452,7 @@ export function FishGlobe() {
               Filters
             </span>
             <span className="og-mono-sm" style={{ color: 'var(--og-accent)' }}>
-              {spatial.isClusterZoom
-                ? 'Zoom in to filter'
-                : `${displayPoints.length.toLocaleString()} / ${spatial.points.length.toLocaleString()}`}
+              {totalSpeciesCount.toLocaleString()}
             </span>
           </div>
 
