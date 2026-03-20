@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useContext } from 'react';
+import { useState, useCallback, useRef, useContext, useEffect } from 'react';
 import { Globe, FilterPanel, useSpatialIndex } from '@openglobes/core';
 import type { PointItem } from '@openglobes/core';
 import { ThemeContext } from '../themes';
@@ -6,6 +6,9 @@ import { FishDetail } from './FishDetail';
 import SearchBar from './SearchBar';
 import { ZoomControls } from './ZoomControls';
 import { ThemeToggle } from './ThemeToggle';
+import { DepthEffect } from './DepthEffect';
+import { MIGRATION_ARCS } from '../data/migrations';
+import { OCEAN_CURRENTS, CURRENTS_DEFAULT_VISIBLE } from '../data/currents';
 
 // Rarity legend config
 const RARITY_ITEMS = [
@@ -20,6 +23,10 @@ export function FishGlobe() {
   const [filterValues, setFilterValues] = useState<Record<string, unknown>>({});
   const [selectedPoint, setSelectedPoint] = useState<PointItem | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [showMigrations, setShowMigrations] = useState(true);
+  const [showCurrents, setShowCurrents] = useState(CURRENTS_DEFAULT_VISIBLE);
+  const [depthEffect, setDepthEffect] = useState<number | null>(null);
+  const [activeMonth, setActiveMonth] = useState<number | null>(null);
 
   const spatial = useSpatialIndex({
     tileBaseUrl: '/data',
@@ -64,7 +71,41 @@ export function FishGlobe() {
     setFilterValues((prev) => ({ ...prev, [key]: value }));
   }, []);
 
-  const displayPoints = spatial.isClusterZoom ? [] : spatial.points;
+  // ── Depth effect — fetch species depth when a point is selected ──
+  useEffect(() => {
+    if (!selectedPoint) { setDepthEffect(null); return; }
+    fetch(`/data/species/${selectedPoint.id}.json`)
+      .then((r) => r.json())
+      .then((data) => {
+        const depthStr = data?.metadata?.depth;
+        if (depthStr) {
+          const match = depthStr.match(/(\d+)/g);
+          const maxDepth = match ? parseInt(match[match.length - 1]) : 0;
+          if (maxDepth > 200) setDepthEffect(maxDepth);
+        }
+      })
+      .catch(() => {});
+  }, [selectedPoint?.id]);
+
+  // ── Client-side filtering ─────────────────────────────────────────
+  const displayPoints = (spatial.isClusterZoom ? [] : spatial.points).filter(
+    (p) => {
+      // Water type filter: if any chips are selected, point must match one
+      const wt = filterValues.waterType;
+      if (Array.isArray(wt) && wt.length > 0) {
+        if (!wt.includes((p as Record<string, unknown>).waterType)) return false;
+      }
+      // Depth filter: skip (depth not available on tile points)
+      // Rarity filter: if any selected, point must match
+      const rar = filterValues.rarity;
+      if (Array.isArray(rar) && rar.length > 0) {
+        const RARITY_MAP: Record<number, string> = { 0: 'Common', 1: 'Uncommon', 2: 'Rare', 3: 'Legendary' };
+        const pointRarityLabel = RARITY_MAP[(p.rarity as number) ?? 0] ?? 'Common';
+        if (!rar.includes(pointRarityLabel)) return false;
+      }
+      return true;
+    },
+  );
 
   // Pass only waterType + depth to FilterPanel; render rarity as custom legend
   const coreFilters = theme.globeTheme.filters.filter((f) => f.key !== 'rarity');
@@ -85,6 +126,8 @@ export function FishGlobe() {
       <Globe
         theme={theme.globeTheme}
         points={displayPoints}
+        arcs={showMigrations ? MIGRATION_ARCS : []}
+        trails={showCurrents ? OCEAN_CURRENTS : []}
         onPointClick={setSelectedPoint}
         onCameraChange={handleCameraChange}
       />
@@ -123,7 +166,7 @@ export function FishGlobe() {
               Filters
             </span>
             <span className="og-mono-sm" style={{ color: 'var(--og-accent)' }}>
-              4,677
+              {displayPoints.length > 0 ? displayPoints.length.toLocaleString() : '4,677'}
             </span>
           </div>
 
@@ -134,42 +177,131 @@ export function FishGlobe() {
             onChange={handleFilterChange}
           />
 
-          {/* Rarity legend */}
+          {/* Rarity filter — clickable dots */}
           <div style={{ marginTop: 16 }}>
             <div className="og-section-label">Rarity</div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {RARITY_ITEMS.map((r) => (
-                <div
-                  key={r.key}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 8,
-                  }}
-                >
-                  <span
-                    style={{
-                      width: 8,
-                      height: 8,
-                      borderRadius: '50%',
-                      flexShrink: 0,
-                      background: r.color,
-                      boxShadow: r.glow
-                        ? `0 0 4px ${r.hex}4d`
-                        : undefined,
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {RARITY_ITEMS.map((r) => {
+                const selected = Array.isArray(filterValues.rarity) ? filterValues.rarity as string[] : [];
+                const isActive = selected.length === 0 || selected.includes(r.label);
+                return (
+                  <button
+                    key={r.key}
+                    type="button"
+                    onClick={() => {
+                      const prev = Array.isArray(filterValues.rarity) ? filterValues.rarity as string[] : [];
+                      const next = prev.includes(r.label)
+                        ? prev.filter((s: string) => s !== r.label)
+                        : [...prev, r.label];
+                      handleFilterChange('rarity', next);
                     }}
-                  />
-                  <span
                     style={{
-                      fontFamily: 'var(--og-font-body)',
-                      fontSize: 12,
-                      color: 'var(--og-text-secondary)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      background: 'none',
+                      border: 'none',
+                      padding: '2px 0',
+                      cursor: 'pointer',
+                      opacity: isActive ? 1 : 0.35,
+                      transition: 'opacity var(--og-transition-fast)',
                     }}
                   >
-                    {r.label}
-                  </span>
-                </div>
-              ))}
+                    <span
+                      style={{
+                        width: 8,
+                        height: 8,
+                        borderRadius: '50%',
+                        flexShrink: 0,
+                        background: r.color,
+                        boxShadow: r.glow ? `0 0 4px ${r.hex}4d` : undefined,
+                      }}
+                    />
+                    <span
+                      style={{
+                        fontFamily: 'var(--og-font-body)',
+                        fontSize: 12,
+                        color: 'var(--og-text-secondary)',
+                      }}
+                    >
+                      {r.label}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Overlays section */}
+          <div style={{ marginTop: 16 }}>
+            <div className="og-section-label">Overlays</div>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                className={`og-chip${showMigrations ? ' og-chip--active' : ''}`}
+                aria-pressed={showMigrations}
+                onClick={() => setShowMigrations((v) => !v)}
+              >
+                Migration Routes
+              </button>
+              <button
+                type="button"
+                className={`og-chip${showCurrents ? ' og-chip--active' : ''}`}
+                aria-pressed={showCurrents}
+                onClick={() => setShowCurrents((v) => !v)}
+              >
+                Ocean Currents
+              </button>
+            </div>
+          </div>
+
+          {/* Season section */}
+          <div style={{ marginTop: 16 }}>
+            <div className="og-section-label">Season</div>
+            <input
+              type="range"
+              min={1}
+              max={12}
+              value={activeMonth ?? 1}
+              onChange={(e) => setActiveMonth(parseInt(e.target.value))}
+              className="og-range"
+              style={{ width: '100%', accentColor: 'var(--og-accent)' }}
+            />
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                marginTop: 4,
+              }}
+            >
+              <span
+                className="og-mono-sm"
+                style={{ fontSize: 11, color: activeMonth ? 'var(--og-text-primary)' : 'var(--og-text-tertiary)' }}
+              >
+                {activeMonth
+                  ? ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][activeMonth - 1]
+                  : 'All months'}
+              </span>
+              {activeMonth !== null && (
+                <button
+                  type="button"
+                  onClick={() => setActiveMonth(null)}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    fontFamily: 'var(--og-font-body)',
+                    fontSize: 10,
+                    color: 'var(--og-accent)',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.05em',
+                    padding: 0,
+                  }}
+                >
+                  Reset
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -231,7 +363,7 @@ export function FishGlobe() {
               Filters
             </span>
             <span className="og-mono-sm" style={{ color: 'var(--og-accent)' }}>
-              4,677
+              {displayPoints.length > 0 ? displayPoints.length.toLocaleString() : '4,677'}
             </span>
           </div>
 
@@ -241,42 +373,131 @@ export function FishGlobe() {
             onChange={handleFilterChange}
           />
 
-          {/* Rarity legend */}
+          {/* Rarity filter — clickable dots */}
           <div style={{ marginTop: 16 }}>
             <div className="og-section-label">Rarity</div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {RARITY_ITEMS.map((r) => (
-                <div
-                  key={r.key}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 8,
-                  }}
-                >
-                  <span
-                    style={{
-                      width: 8,
-                      height: 8,
-                      borderRadius: '50%',
-                      flexShrink: 0,
-                      background: r.color,
-                      boxShadow: r.glow
-                        ? `0 0 4px ${r.hex}4d`
-                        : undefined,
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {RARITY_ITEMS.map((r) => {
+                const selected = Array.isArray(filterValues.rarity) ? filterValues.rarity as string[] : [];
+                const isActive = selected.length === 0 || selected.includes(r.label);
+                return (
+                  <button
+                    key={r.key}
+                    type="button"
+                    onClick={() => {
+                      const prev = Array.isArray(filterValues.rarity) ? filterValues.rarity as string[] : [];
+                      const next = prev.includes(r.label)
+                        ? prev.filter((s: string) => s !== r.label)
+                        : [...prev, r.label];
+                      handleFilterChange('rarity', next);
                     }}
-                  />
-                  <span
                     style={{
-                      fontFamily: 'var(--og-font-body)',
-                      fontSize: 12,
-                      color: 'var(--og-text-secondary)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      background: 'none',
+                      border: 'none',
+                      padding: '2px 0',
+                      cursor: 'pointer',
+                      opacity: isActive ? 1 : 0.35,
+                      transition: 'opacity var(--og-transition-fast)',
                     }}
                   >
-                    {r.label}
-                  </span>
-                </div>
-              ))}
+                    <span
+                      style={{
+                        width: 8,
+                        height: 8,
+                        borderRadius: '50%',
+                        flexShrink: 0,
+                        background: r.color,
+                        boxShadow: r.glow ? `0 0 4px ${r.hex}4d` : undefined,
+                      }}
+                    />
+                    <span
+                      style={{
+                        fontFamily: 'var(--og-font-body)',
+                        fontSize: 12,
+                        color: 'var(--og-text-secondary)',
+                      }}
+                    >
+                      {r.label}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Overlays section (mobile) */}
+          <div style={{ marginTop: 16 }}>
+            <div className="og-section-label">Overlays</div>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                className={`og-chip${showMigrations ? ' og-chip--active' : ''}`}
+                aria-pressed={showMigrations}
+                onClick={() => setShowMigrations((v) => !v)}
+              >
+                Migration Routes
+              </button>
+              <button
+                type="button"
+                className={`og-chip${showCurrents ? ' og-chip--active' : ''}`}
+                aria-pressed={showCurrents}
+                onClick={() => setShowCurrents((v) => !v)}
+              >
+                Ocean Currents
+              </button>
+            </div>
+          </div>
+
+          {/* Season section (mobile) */}
+          <div style={{ marginTop: 16 }}>
+            <div className="og-section-label">Season</div>
+            <input
+              type="range"
+              min={1}
+              max={12}
+              value={activeMonth ?? 1}
+              onChange={(e) => setActiveMonth(parseInt(e.target.value))}
+              className="og-range"
+              style={{ width: '100%', accentColor: 'var(--og-accent)' }}
+            />
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                marginTop: 4,
+              }}
+            >
+              <span
+                className="og-mono-sm"
+                style={{ fontSize: 11, color: activeMonth ? 'var(--og-text-primary)' : 'var(--og-text-tertiary)' }}
+              >
+                {activeMonth
+                  ? ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][activeMonth - 1]
+                  : 'All months'}
+              </span>
+              {activeMonth !== null && (
+                <button
+                  type="button"
+                  onClick={() => setActiveMonth(null)}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    fontFamily: 'var(--og-font-body)',
+                    fontSize: 10,
+                    color: 'var(--og-accent)',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.05em',
+                    padding: 0,
+                  }}
+                >
+                  Reset
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -287,8 +508,22 @@ export function FishGlobe() {
         <FishDetail point={selectedPoint} onClose={() => setSelectedPoint(null)} />
       )}
 
+      {/* ── Depth effect overlay ──────────────────────────────────────── */}
+      {depthEffect !== null && (
+        <DepthEffect depth={depthEffect} onComplete={() => setDepthEffect(null)} />
+      )}
+
       {/* ── Zoom controls — bottom-right ─────────────────────────────── */}
-      <ZoomControls />
+      <ZoomControls
+        onZoomIn={() => {
+          const canvas = document.querySelector('#og-app canvas');
+          if (canvas) canvas.dispatchEvent(new WheelEvent('wheel', { deltaY: -300, bubbles: true }));
+        }}
+        onZoomOut={() => {
+          const canvas = document.querySelector('#og-app canvas');
+          if (canvas) canvas.dispatchEvent(new WheelEvent('wheel', { deltaY: 300, bubbles: true }));
+        }}
+      />
 
       {/* ── Attribution — bottom-center ──────────────────────────────── */}
       <div

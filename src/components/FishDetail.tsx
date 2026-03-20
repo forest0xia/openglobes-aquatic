@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import type { PointItem } from '@openglobes/core';
+import { SCHOOLING_SPECIES } from '../data/schooling';
 
 interface SpeciesDetail {
   id: string;
@@ -176,6 +177,28 @@ export function FishDetail({ point, onClose }: FishDetailProps) {
             </span>
           )}
         </div>
+
+        {/* Schooling species badge */}
+        {detail && (() => {
+          const nameLower = (point.name || '').toLowerCase();
+          const isSchooling = [...SCHOOLING_SPECIES].some((s) => nameLower.includes(s));
+          return isSchooling ? (
+            <div style={{ marginTop: 6, marginBottom: 2 }}>
+              <span
+                className="og-glass-inset"
+                style={{
+                  display: 'inline-block',
+                  padding: '2px 8px',
+                  fontSize: 10,
+                  fontFamily: 'var(--og-font-body)',
+                  color: 'var(--og-accent)',
+                }}
+              >
+                🐟 Schooling species
+              </span>
+            </div>
+          ) : null;
+        })()}
 
         {/* Chinese name + family line */}
         {detail && (detail.nameZh || detail.family) && (
