@@ -10,7 +10,7 @@ import type { PointItem } from '@openglobes/core';
 // gentle wobble. Rare/legendary fish get a glow ring behind them.
 // ---------------------------------------------------------------------------
 
-const POOL_SIZE = 50;
+const POOL_SIZE = 20;
 
 const RARITY_COLORS: Record<number, string> = {
   0: '#48bfe6', // Common
@@ -79,6 +79,7 @@ export class SwimmingFishManager {
   private getCoords: (lat: number, lng: number, alt?: number) => { x: number; y: number; z: number };
   private textures: Map<string, THREE.Texture> = new Map();
   private time = 0;
+  private frameCount = 0;
 
   constructor(
     scene: THREE.Scene,
@@ -160,6 +161,10 @@ export class SwimmingFishManager {
    */
   update(dt: number): void {
     this.time += dt;
+    this.frameCount++;
+
+    // Only update sprite positions every 2nd frame for performance
+    if (this.frameCount % 2 !== 0) return;
 
     for (const entry of this.pool) {
       if (!entry.sprite.visible) continue;

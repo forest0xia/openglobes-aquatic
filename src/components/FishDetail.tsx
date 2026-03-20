@@ -33,6 +33,7 @@ interface SpeciesDetail {
     diet?: string;
     rarity?: string;
   };
+  images: { thumbnail: string; image: string }[];
   links: { label: string; url: string }[];
   attribution: string;
 }
@@ -71,6 +72,10 @@ export function FishDetail({ point, onClose }: FishDetailProps) {
   const [detail, setDetail] = useState<SpeciesDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [showSizeComp, setShowSizeComp] = useState(false);
+  const [imgIdx, setImgIdx] = useState(0);
+
+  // Reset image index on species change
+  useEffect(() => { setImgIdx(0); }, [point.id]);
 
   useEffect(() => {
     setLoading(true);
@@ -235,11 +240,11 @@ export function FishDetail({ point, onClose }: FishDetailProps) {
           </div>
         )}
 
-        {/* Image placeholder */}
+        {/* Image gallery */}
         <div
           style={{
             width: '100%',
-            height: 120,
+            height: 140,
             borderRadius: 'var(--og-radius-md)',
             background: 'linear-gradient(135deg, rgba(8,20,40,0.8), rgba(5,12,25,0.9))',
             display: 'flex',
@@ -247,9 +252,111 @@ export function FishDetail({ point, onClose }: FishDetailProps) {
             justifyContent: 'center',
             marginBottom: 16,
             border: '1px solid rgba(100,160,255,0.05)',
+            position: 'relative',
+            overflow: 'hidden',
           }}
         >
-          <span style={{ fontSize: 32, opacity: 0.15 }}>🐟</span>
+          {detail && detail.images && detail.images.length > 0 ? (
+            <>
+              <img
+                src={detail.images[imgIdx]?.image ?? detail.images[0].image}
+                alt={point.name}
+                style={{
+                  width: '100%',
+                  height: '100%',
+                  objectFit: 'cover',
+                  mixBlendMode: 'screen',
+                }}
+                onError={(e) => {
+                  (e.target as HTMLImageElement).style.display = 'none';
+                }}
+              />
+              {detail.images.length > 1 && (
+                <>
+                  {/* Prev arrow */}
+                  <button
+                    type="button"
+                    onClick={() => setImgIdx((i) => (i - 1 + detail.images.length) % detail.images.length)}
+                    style={{
+                      position: 'absolute',
+                      left: 4,
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      background: 'rgba(0,0,0,0.5)',
+                      border: 'none',
+                      color: '#fff',
+                      borderRadius: '50%',
+                      width: 22,
+                      height: 22,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: 12,
+                      padding: 0,
+                    }}
+                    aria-label="Previous image"
+                  >
+                    ‹
+                  </button>
+                  {/* Next arrow */}
+                  <button
+                    type="button"
+                    onClick={() => setImgIdx((i) => (i + 1) % detail.images.length)}
+                    style={{
+                      position: 'absolute',
+                      right: 4,
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      background: 'rgba(0,0,0,0.5)',
+                      border: 'none',
+                      color: '#fff',
+                      borderRadius: '50%',
+                      width: 22,
+                      height: 22,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: 12,
+                      padding: 0,
+                    }}
+                    aria-label="Next image"
+                  >
+                    ›
+                  </button>
+                  {/* Dot indicators */}
+                  <div
+                    style={{
+                      position: 'absolute',
+                      bottom: 6,
+                      left: '50%',
+                      transform: 'translateX(-50%)',
+                      display: 'flex',
+                      gap: 4,
+                    }}
+                  >
+                    {detail.images.map((_, i) => (
+                      <span
+                        key={i}
+                        onClick={() => setImgIdx(i)}
+                        style={{
+                          width: 6,
+                          height: 6,
+                          borderRadius: '50%',
+                          background: i === imgIdx ? '#fff' : 'rgba(255,255,255,0.35)',
+                          cursor: 'pointer',
+                          transition: 'background 200ms',
+                        }}
+                      />
+                    ))}
+                  </div>
+                </>
+              )}
+            </>
+          ) : (
+            <span style={{ fontSize: 32, opacity: 0.15 }}>🐟</span>
+          )}
         </div>
 
         {/* Loading state */}
@@ -331,6 +438,17 @@ export function FishDetail({ point, onClose }: FishDetailProps) {
                 style={{ marginBottom: 8 }}
               >
                 DEPTH PROFILE
+              </div>
+              <div
+                style={{
+                  fontFamily: 'var(--og-font-body)',
+                  fontSize: 10,
+                  color: 'var(--og-text-tertiary)',
+                  marginBottom: 6,
+                  opacity: 0.7,
+                }}
+              >
+                Typical depth range for this species
               </div>
               <DepthStrip depthMin={parsed.min} depthMax={parsed.max} />
             </div>

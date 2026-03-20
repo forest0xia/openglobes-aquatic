@@ -1,11 +1,11 @@
-import { useState, useCallback, useRef, useContext, useEffect } from 'react';
+import { useState, useCallback, useRef, useContext, useEffect, useMemo } from 'react';
 import { Globe, FilterPanel, useSpatialIndex } from '@openglobes/core';
 import type { PointItem, GlobeSceneRefs } from '@openglobes/core';
 import { ThemeContext } from '../themes';
 import { FishDetail } from './FishDetail';
 import SearchBar from './SearchBar';
 import { ZoomControls } from './ZoomControls';
-import { ThemeToggle } from './ThemeToggle';
+// ThemeToggle removed — Night Mode chip added to Overlays section instead
 import { DepthEffect } from './DepthEffect';
 import { SwimmingFishManager } from './SwimmingFish';
 import { FishNearMe } from './FishNearMe';
@@ -23,7 +23,8 @@ const RARITY_ITEMS = [
 ];
 
 export function FishGlobe() {
-  const { theme } = useContext(ThemeContext);
+  const { theme, setThemeId } = useContext(ThemeContext);
+  const isNightMode = theme.id === 'bioluminescence';
   const [filterValues, setFilterValues] = useState<Record<string, unknown>>({});
   const [selectedPoint, setSelectedPoint] = useState<PointItem | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -126,25 +127,26 @@ export function FishGlobe() {
       .catch(() => {});
   }, [selectedPoint?.id]);
 
-  // ── Client-side filtering ─────────────────────────────────────────
-  const displayPoints = (spatial.isClusterZoom ? [] : spatial.points).filter(
-    (p) => {
-      // Water type filter: if any chips are selected, point must match one
-      const wt = filterValues.waterType;
-      if (Array.isArray(wt) && wt.length > 0) {
-        if (!wt.includes((p as Record<string, unknown>).waterType)) return false;
-      }
-      // Depth filter: skip (depth not available on tile points)
-      // Rarity filter: if any selected, point must match
-      const rar = filterValues.rarity;
-      if (Array.isArray(rar) && rar.length > 0) {
-        const RARITY_MAP: Record<number, string> = { 0: 'Common', 1: 'Uncommon', 2: 'Rare', 3: 'Legendary' };
-        const pointRarityLabel = RARITY_MAP[(p.rarity as number) ?? 0] ?? 'Common';
-        if (!rar.includes(pointRarityLabel)) return false;
-      }
-      return true;
-    },
-  );
+  // ── Client-side filtering (memoized to avoid unnecessary re-renders) ──
+  const displayPoints = useMemo(() => {
+    return (spatial.isClusterZoom ? [] : spatial.points).filter(
+      (p) => {
+        // Water type filter: if any chips are selected, point must match one
+        const wt = filterValues.waterType;
+        if (Array.isArray(wt) && wt.length > 0) {
+          if (!wt.includes((p as Record<string, unknown>).waterType)) return false;
+        }
+        // Rarity filter: if any selected, point must match
+        const rar = filterValues.rarity;
+        if (Array.isArray(rar) && rar.length > 0) {
+          const RARITY_MAP: Record<number, string> = { 0: 'Common', 1: 'Uncommon', 2: 'Rare', 3: 'Legendary' };
+          const pointRarityLabel = RARITY_MAP[(p.rarity as number) ?? 0] ?? 'Common';
+          if (!rar.includes(pointRarityLabel)) return false;
+        }
+        return true;
+      },
+    );
+  }, [spatial.isClusterZoom, spatial.points, filterValues.waterType, filterValues.rarity]);
 
   // ── Update swimming fish when visible points change ──────────────
   useEffect(() => {
@@ -152,7 +154,7 @@ export function FishGlobe() {
   }, [displayPoints]);
 
   // Pass only waterType + depth to FilterPanel; render rarity as custom legend
-  const coreFilters = theme.globeTheme.filters.filter((f) => f.key !== 'rarity');
+  const coreFilters = theme.globeTheme.filters.filter((f) => f.key !== 'rarity' && f.key !== 'depth');
   const coreTheme = { ...theme.globeTheme, filters: coreFilters };
 
   return (
@@ -181,8 +183,7 @@ export function FishGlobe() {
       {/* ── Search bar — top-center ──────────────────────────────────── */}
       <SearchBar totalSpecies={4677} />
 
-      {/* ── Theme toggle — top-right ─────────────────────────────────── */}
-      <ThemeToggle />
+      {/* Theme toggle removed — Night Mode is in Overlays section */}
 
       {/* ── Filter panel — desktop: left sidebar / mobile: bottom sheet ─ */}
       {/* Desktop */}
@@ -212,7 +213,9 @@ export function FishGlobe() {
               Filters
             </span>
             <span className="og-mono-sm" style={{ color: 'var(--og-accent)' }}>
-              {displayPoints.length > 0 ? displayPoints.length.toLocaleString() : '4,677'}
+              {spatial.isClusterZoom
+                ? 'Zoom in to filter'
+                : `${displayPoints.length.toLocaleString()} / ${spatial.points.length.toLocaleString()}`}
             </span>
           </div>
 
@@ -297,6 +300,14 @@ export function FishGlobe() {
                 onClick={() => setShowCurrents((v) => !v)}
               >
                 Ocean Currents
+              </button>
+              <button
+                type="button"
+                className={`og-chip${isNightMode ? ' og-chip--active' : ''}`}
+                aria-pressed={isNightMode}
+                onClick={() => setThemeId(isNightMode ? 'fish' : 'bioluminescence')}
+              >
+                Night Mode
               </button>
             </div>
           </div>
@@ -409,7 +420,9 @@ export function FishGlobe() {
               Filters
             </span>
             <span className="og-mono-sm" style={{ color: 'var(--og-accent)' }}>
-              {displayPoints.length > 0 ? displayPoints.length.toLocaleString() : '4,677'}
+              {spatial.isClusterZoom
+                ? 'Zoom in to filter'
+                : `${displayPoints.length.toLocaleString()} / ${spatial.points.length.toLocaleString()}`}
             </span>
           </div>
 
@@ -494,6 +507,14 @@ export function FishGlobe() {
               >
                 Ocean Currents
               </button>
+              <button
+                type="button"
+                className={`og-chip${isNightMode ? ' og-chip--active' : ''}`}
+                aria-pressed={isNightMode}
+                onClick={() => setThemeId(isNightMode ? 'fish' : 'bioluminescence')}
+              >
+                Night Mode
+              </button>
             </div>
           </div>
 
@@ -572,10 +593,10 @@ export function FishGlobe() {
       />
 
       {/* ── Discover rare fish — bottom-right, above zoom ──────────── */}
-      <DiscoverButton points={displayPoints} onDiscover={handleDiscover} />
+      <DiscoverButton points={spatial.points} onDiscover={handleDiscover} />
 
       {/* ── Fish Near Me — bottom-left ─────────────────────────────── */}
-      <FishNearMe points={displayPoints} onFlyTo={handleFlyTo} />
+      <FishNearMe points={spatial.points} onFlyTo={handleFlyTo} />
 
       {/* ── Attribution — bottom-center ──────────────────────────────── */}
       <div
