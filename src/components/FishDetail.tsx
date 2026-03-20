@@ -1,6 +1,21 @@
 import { useState, useEffect } from 'react';
 import type { PointItem } from '@openglobes/core';
 import { SCHOOLING_SPECIES } from '../data/schooling';
+import { DepthStrip } from './DepthStrip';
+import { SizeComparison } from './SizeComparison';
+
+const parseCm = (str: string): number | null => {
+  const match = str.match(/([\d.]+)\s*cm/);
+  return match ? parseFloat(match[1]) : null;
+};
+
+function parseDepth(str: string): { min: number; max: number } | null {
+  const match = str.match(/(\d+)\s*-\s*(\d+)/);
+  if (match) return { min: parseInt(match[1]), max: parseInt(match[2]) };
+  const single = str.match(/(\d+)/);
+  if (single) return { min: 0, max: parseInt(single[1]) };
+  return null;
+}
 
 interface SpeciesDetail {
   id: string;
@@ -55,10 +70,12 @@ interface FishDetailProps {
 export function FishDetail({ point, onClose }: FishDetailProps) {
   const [detail, setDetail] = useState<SpeciesDetail | null>(null);
   const [loading, setLoading] = useState(true);
+  const [showSizeComp, setShowSizeComp] = useState(false);
 
   useEffect(() => {
     setLoading(true);
     setDetail(null);
+    setShowSizeComp(false);
     fetch(`/data/species/${point.id}.json`)
       .then((r) => r.json())
       .then((d) => setDetail(d))
@@ -274,6 +291,52 @@ export function FishDetail({ point, onClose }: FishDetailProps) {
           </div>
         )}
 
+        {/* Compare Size button */}
+        {detail && detail.metadata.maxLength && (() => {
+          const cm = parseCm(detail.metadata.maxLength);
+          return cm !== null ? (
+            <div style={{ marginBottom: 16 }}>
+              <button
+                className="og-glass-inset"
+                onClick={() => setShowSizeComp(true)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  width: '100%',
+                  padding: '7px 12px',
+                  cursor: 'pointer',
+                  border: 'none',
+                  background: 'none',
+                  color: 'var(--og-accent)',
+                  fontFamily: 'var(--og-font-body)',
+                  fontSize: 12,
+                  textAlign: 'left',
+                }}
+              >
+                <RulerIcon />
+                Compare Size
+              </button>
+            </div>
+          ) : null;
+        })()}
+
+        {/* Depth profile */}
+        {detail && detail.metadata.depth && (() => {
+          const parsed = parseDepth(detail.metadata.depth);
+          return parsed ? (
+            <div style={{ marginBottom: 16 }}>
+              <div
+                className="og-section-label"
+                style={{ marginBottom: 8 }}
+              >
+                DEPTH PROFILE
+              </div>
+              <DepthStrip depthMin={parsed.min} depthMax={parsed.max} />
+            </div>
+          ) : null;
+        })()}
+
         {/* Links row */}
         {detail && detail.links.length > 0 && (
           <div style={{ display: 'flex', gap: 8 }}>
@@ -297,6 +360,18 @@ export function FishDetail({ point, onClose }: FishDetailProps) {
           </div>
         )}
       </div>
+
+      {/* Size comparison overlay */}
+      {showSizeComp && detail?.metadata.maxLength && (() => {
+        const cm = parseCm(detail.metadata.maxLength);
+        return cm !== null ? (
+          <SizeComparison
+            lengthCm={cm}
+            speciesName={point.name}
+            onClose={() => setShowSizeComp(false)}
+          />
+        ) : null;
+      })()}
     </div>
   );
 }
@@ -328,6 +403,27 @@ function ArrowIcon() {
       strokeWidth="2"
     >
       <path d="M7 17L17 7M17 7H7M17 7V17" />
+    </svg>
+  );
+}
+
+function RulerIcon() {
+  return (
+    <svg
+      width="12"
+      height="12"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M21.3 8.7 8.7 21.3c-.4.4-.8.6-1.3.6H4a1 1 0 0 1-1-1v-3.4c0-.5.2-.9.6-1.3L16.3 2.7a1 1 0 0 1 1.4 0l3.6 3.6a1 1 0 0 1 0 1.4z" />
+      <path d="m7.5 10.5 2 2" />
+      <path d="m10.5 7.5 2 2" />
+      <path d="m13.5 4.5 2 2" />
+      <path d="m4.5 13.5 2 2" />
     </svg>
   );
 }
