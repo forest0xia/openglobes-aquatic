@@ -11,6 +11,7 @@ import { SwimmingFishManager } from './SwimmingFish';
 import { GeoLabelsManager } from './GeoLabels';
 import { FishNearMe } from './FishNearMe';
 import { DiscoverButton } from './DiscoverButton';
+import { ListPanel } from './ListPanel';
 import { flyTo } from '../utils/flyTo';
 import { MIGRATION_ARCS } from '../data/migrations';
 import { OCEAN_CURRENTS, CURRENTS_DEFAULT_VISIBLE } from '../data/currents';
@@ -37,6 +38,7 @@ export function FishGlobe() {
   const [showFilters, setShowFilters] = useState(true);
   const [detailDismissed, setDetailDismissed] = useState(false);
   const [showLabels, setShowLabels] = useState(true);
+  const [listPanel, setListPanel] = useState<{ title: string; items: { id: string; name: string; extra?: string }[] } | null>(null);
 
   // ── Scene refs for flyTo ─────────────────────────────────────────
   const sceneRefsRef = useRef<GlobeSceneRefs | null>(null);
@@ -55,6 +57,9 @@ export function FishGlobe() {
 
   const handleFrame = useCallback((dt: number) => {
     fishManagerRef.current?.update(dt);
+    if (sceneRefsRef.current) {
+      labelsManagerRef.current?.update(sceneRefsRef.current.camera);
+    }
   }, []);
 
   // Clean up fish sprites and geo labels on unmount
@@ -89,6 +94,17 @@ export function FishGlobe() {
     setTimeout(() => setSelectedPoint(point), 1500);
   }, []);
 
+  // ── Migration species list for ListPanel ───────────────────────
+  const migrationSpecies = useMemo(() => {
+    const unique = new Map<string, string>();
+    for (const arc of MIGRATION_ARCS) {
+      if (arc.label && !unique.has(arc.label)) {
+        unique.set(arc.label, arc.id ?? arc.label);
+      }
+    }
+    return Array.from(unique.entries()).map(([name, id]) => ({ id, name }));
+  }, []);
+
   const spatial = useSpatialIndex({
     tileBaseUrl: '/data',
     tileManifestUrl: '/tile-manifest.json',
@@ -121,8 +137,8 @@ export function FishGlobe() {
 
       // Trigger reload if distance OR look-at position changed
       const distChanged = Math.abs(distance - lastDistRef.current) > 0.5;
-      const latChanged = Math.abs(centerLat - (lastLatRef.current ?? 0)) > 2;
-      const lngChanged = Math.abs(centerLng - (lastLngRef.current ?? 0)) > 2;
+      const latChanged = Math.abs(centerLat - (lastLatRef.current ?? 0)) > 0.5;
+      const lngChanged = Math.abs(centerLng - (lastLngRef.current ?? 0)) > 0.5;
 
       if (distChanged || latChanged || lngChanged || lastDistRef.current === 0) {
         lastDistRef.current = distance;
@@ -202,12 +218,26 @@ export function FishGlobe() {
     fishManagerRef.current?.updatePoints(spatial.isClusterZoom ? [] : filteredPoints);
   }, [spatial.isClusterZoom, filteredPoints]);
 
+  // ── Clear rarity filter when entering cluster zoom ─────────────
+  useEffect(() => {
+    if (spatial.isClusterZoom && Array.isArray(filterValues.rarity) && (filterValues.rarity as string[]).length > 0) {
+      setFilterValues(prev => ({ ...prev, rarity: [] }));
+    }
+  }, [spatial.isClusterZoom]);
+
   // ── Handle point/cluster clicks ────────────────────────────────
   const handlePointClick = useCallback((point: PointItem) => {
-    // If it's a cluster, zoom into it instead of opening detail
+    // If it's a cluster, show species list AND zoom in
     if ((point as Record<string, unknown>)._isCluster) {
+      const topItems = ((point as Record<string, unknown>)._topItems as { id: string; name: string }[]) ?? [];
+      const count = (point as Record<string, unknown>)._count as number;
+      setListPanel({
+        title: `${count.toLocaleString()} species`,
+        items: topItems.map(t => ({ id: t.id, name: t.name, extra: 'Tap to view' })),
+      });
+      // Also zoom in
       if (sceneRefsRef.current) {
-        flyTo(sceneRefsRef.current, point.lat, point.lng, { duration: 1500, altitude: 0 });
+        flyTo(sceneRefsRef.current, point.lat, point.lng, { duration: 1500 });
       }
       return;
     }
@@ -234,6 +264,7 @@ export function FishGlobe() {
         theme={theme.globeTheme}
         points={displayPoints}
         arcs={showMigrations ? MIGRATION_ARCS : []}
+        arcConfig={{ elevation: 0.005 }}
         trails={showCurrents ? OCEAN_CURRENTS : []}
         onPointClick={handlePointClick}
         onCameraChange={handleCameraChange}
@@ -345,8 +376,10 @@ export function FishGlobe() {
           />
 
           {/* Rarity filter — clickable dots */}
-          <div style={{ marginTop: 16 }}>
-            <div className="og-section-label">Rarity</div>
+          <div style={{ marginTop: 16, opacity: spatial.isClusterZoom ? 0.3 : 1, pointerEvents: spatial.isClusterZoom ? 'none' : 'auto' }}>
+            <div className="og-section-label">
+              Rarity {spatial.isClusterZoom && <span style={{ fontSize: 9, opacity: 0.6 }}>(zoom in)</span>}
+            </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               {RARITY_ITEMS.map((r) => {
                 const selected = Array.isArray(filterValues.rarity) ? filterValues.rarity as string[] : [];
@@ -402,7 +435,7 @@ export function FishGlobe() {
           {/* Overlays section */}
           <div style={{ marginTop: 16 }}>
             <div className="og-section-label">Overlays</div>
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
               <button
                 type="button"
                 className={`og-chip${showMigrations ? ' og-chip--active' : ''}`}
@@ -411,6 +444,16 @@ export function FishGlobe() {
               >
                 Migration Routes
               </button>
+              {showMigrations && (
+                <button
+                  type="button"
+                  onClick={() => setListPanel({ title: 'Migration Routes', items: migrationSpecies })}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--og-text-tertiary)', fontSize: 12, padding: '0 4px' }}
+                  aria-label="Migration species info"
+                >
+                  &#8505;
+                </button>
+              )}
               <button
                 type="button"
                 className={`og-chip${showCurrents ? ' og-chip--active' : ''}`}
@@ -568,8 +611,10 @@ export function FishGlobe() {
           />
 
           {/* Rarity filter — clickable dots */}
-          <div style={{ marginTop: 16 }}>
-            <div className="og-section-label">Rarity</div>
+          <div style={{ marginTop: 16, opacity: spatial.isClusterZoom ? 0.3 : 1, pointerEvents: spatial.isClusterZoom ? 'none' : 'auto' }}>
+            <div className="og-section-label">
+              Rarity {spatial.isClusterZoom && <span style={{ fontSize: 9, opacity: 0.6 }}>(zoom in)</span>}
+            </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               {RARITY_ITEMS.map((r) => {
                 const selected = Array.isArray(filterValues.rarity) ? filterValues.rarity as string[] : [];
@@ -625,7 +670,7 @@ export function FishGlobe() {
           {/* Overlays section (mobile) */}
           <div style={{ marginTop: 16 }}>
             <div className="og-section-label">Overlays</div>
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
               <button
                 type="button"
                 className={`og-chip${showMigrations ? ' og-chip--active' : ''}`}
@@ -634,6 +679,16 @@ export function FishGlobe() {
               >
                 Migration Routes
               </button>
+              {showMigrations && (
+                <button
+                  type="button"
+                  onClick={() => setListPanel({ title: 'Migration Routes', items: migrationSpecies })}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--og-text-tertiary)', fontSize: 12, padding: '0 4px' }}
+                  aria-label="Migration species info"
+                >
+                  &#8505;
+                </button>
+              )}
               <button
                 type="button"
                 className={`og-chip${showCurrents ? ' og-chip--active' : ''}`}
@@ -711,6 +766,22 @@ export function FishGlobe() {
       )}
 
       {/* Depth effect overlay removed */}
+
+      {/* ── List panel (cluster species / migration routes) ───────── */}
+      {listPanel && (
+        <ListPanel
+          title={listPanel.title}
+          items={listPanel.items}
+          onClose={() => setListPanel(null)}
+          onItemClick={(id) => {
+            const found = spatial.points.find(p => p.id === id);
+            if (found) {
+              setSelectedPoint(found);
+              setListPanel(null);
+            }
+          }}
+        />
+      )}
 
       {/* ── Zoom controls — bottom-right ─────────────────────────────── */}
       <ZoomControls

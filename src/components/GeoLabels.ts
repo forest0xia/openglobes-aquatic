@@ -96,6 +96,22 @@ export class GeoLabelsManager {
     }
   }
 
+  /** Hide labels on the far side of the globe. Call each frame. */
+  update(camera: THREE.Camera): void {
+    if (!this.visible) return;
+    const camDir = new THREE.Vector3();
+    camera.getWorldPosition(camDir);
+    camDir.normalize();
+
+    for (let i = 0; i < this.sprites.length; i++) {
+      const sprite = this.sprites[i];
+      const spriteDir = sprite.position.clone().normalize();
+      // Dot product: >0 means same hemisphere as camera (visible)
+      const dot = camDir.dot(spriteDir);
+      sprite.visible = dot > 0.1; // slight threshold to hide labels near the edge
+    }
+  }
+
   /** Remove all sprites from the scene and free GPU resources. */
   dispose(): void {
     for (const sprite of this.sprites) {
