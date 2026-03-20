@@ -70,6 +70,30 @@
 /* fish IS the default — no overrides needed */
 [data-theme="fish"] {}
 
+/* Bioluminescence — night mode, pure black with glowing points */
+[data-theme="bioluminescence"] {
+  --og-bg-void:          #000000;
+  --og-bg-glass:         rgba(0, 2, 8, 0.85);
+  --og-bg-glass-heavy:   rgba(0, 2, 8, 0.92);
+  --og-bg-surface:       rgba(0, 5, 15, 0.6);
+  --og-border:           rgba(76, 201, 240, 0.05);
+  --og-border-hover:     rgba(76, 201, 240, 0.12);
+  --og-accent:           #4cc9f0;
+  --og-accent-dim:       rgba(76, 201, 240, 0.1);
+  --og-text-primary:     rgba(180, 220, 255, 0.95);
+  --og-text-secondary:   rgba(100, 160, 220, 0.6);
+  --og-text-tertiary:    rgba(60, 100, 160, 0.4);
+  --og-shadow-md:        0 4px 24px rgba(0, 0, 0, 0.8);
+  --og-shadow-glow:      0 0 30px rgba(76, 201, 240, 0.25);
+
+  /* Rarity colors — brighter for bioluminescence */
+  --og-rarity-common:    #5cd4ff;
+  --og-rarity-uncommon:  #6eeab8;
+  --og-rarity-rare:      #ffda5c;
+  --og-rarity-legendary: #ff5c8a;
+  --og-rarity-mythic:    #c9a0e8;
+}
+
 /* Midnight — purple-tinted sample theme */
 [data-theme="midnight"] {
   --og-bg-void:          #020208;

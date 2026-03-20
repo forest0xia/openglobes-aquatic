@@ -1,6 +1,7 @@
 import { createContext, useState, useEffect, type ReactNode } from 'react';
 import type { GlobeTheme } from '@openglobes/core';
 import { fishTheme } from './fish';
+import { bioluminescenceTheme } from './bioluminescence';
 
 export interface ThemeEntry {
   id: string;
@@ -10,6 +11,7 @@ export interface ThemeEntry {
 
 export const THEMES: ThemeEntry[] = [
   { id: 'fish', label: 'Deep Ocean', globeTheme: fishTheme },
+  { id: 'bioluminescence', label: 'Night Mode', globeTheme: bioluminescenceTheme },
 ];
 
 interface ThemeContextValue {
