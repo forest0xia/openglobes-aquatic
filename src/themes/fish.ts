@@ -19,27 +19,39 @@ const RARITY_SIZES: Record<number, number> = {
 
 export const fishTheme: GlobeTheme = {
   id: 'fish',
-  name: 'FishGlobe',
-  tagline: '35,000+ fish species worldwide',
+  name: 'AquaticGlobe',
+  tagline: '200,000+ aquatic species worldwide',
 
   globeTexture: '//unpkg.com/three-globe/example/img/earth-blue-marble.jpg',
   atmosphereColor: '#4cc9f0',
   backgroundColor: '#050a12',
+  terrain: {
+    bumpMap: '//cdn.jsdelivr.net/npm/three-globe/example/img/earth-topology.png',
+    bumpScale: 10,
+    specularMap: '//cdn.jsdelivr.net/npm/three-globe/example/img/earth-water.png',
+    specular: 'grey',
+    shininess: 15,
+  },
 
   pointColor: (item: PointItem) => {
     if ((item as Record<string, unknown>)._isCluster) {
       const count = (item as Record<string, unknown>)._count as number;
-      if (count > 500) return '#ef476f';
-      if (count > 100) return '#f9c74f';
-      if (count > 20) return '#56d6a0';
-      return '#48bfe6';
+      // 6-tier gradient matching new cluster caps
+      if (count > 2000) return '#ef476f';   // red — large
+      if (count > 500) return '#f9c74f';    // gold
+      if (count > 100) return '#56d6a0';    // green
+      if (count > 30) return '#4cc9f0';     // cyan
+      if (count > 5) return '#48bfe6';      // blue
+      return '#7a8ba0';                      // gray — tiny
     }
     return RARITY_COLORS[item.rarity as number] ?? '#48bfe6';
   },
   pointSize: (item: PointItem) => {
     if ((item as Record<string, unknown>)._isCluster) {
       const count = (item as Record<string, unknown>)._count as number;
-      return Math.min(3, 0.5 + Math.log10(count + 1) * 0.5);
+      // Proportional: 1 species = 0.15, 100 = 0.8, 5000 = 2.0
+      if (count <= 1) return 0.15;
+      return Math.min(2.0, 0.15 + Math.sqrt(count) * 0.025);
     }
     return RARITY_SIZES[item.rarity as number] ?? 0.12;
   },

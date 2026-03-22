@@ -30,21 +30,31 @@ export const bioluminescenceTheme: GlobeTheme = {
   globeTexture: BLACK_TEXTURE,
   atmosphereColor: '#001122',
   backgroundColor: '#000000',
+  terrain: {
+    bumpMap: '//cdn.jsdelivr.net/npm/three-globe/example/img/earth-topology.png',
+    bumpScale: 6,
+    specularMap: '//cdn.jsdelivr.net/npm/three-globe/example/img/earth-water.png',
+    specular: '#112233',
+    shininess: 8,
+  },
 
   pointColor: (item: PointItem) => {
     if ((item as Record<string, unknown>)._isCluster) {
       const count = (item as Record<string, unknown>)._count as number;
-      if (count > 500) return '#ff5c8a';
-      if (count > 100) return '#ffda5c';
-      if (count > 20) return '#6eeab8';
-      return '#5cd4ff';
+      if (count > 2000) return '#ff5c8a';
+      if (count > 500) return '#ffda5c';
+      if (count > 100) return '#6eeab8';
+      if (count > 30) return '#5cd4ff';
+      if (count > 5) return '#48bfe6';
+      return '#8a9ab0';
     }
     return RARITY_COLORS[item.rarity as number] ?? '#5cd4ff';
   },
   pointSize: (item: PointItem) => {
     if ((item as Record<string, unknown>)._isCluster) {
       const count = (item as Record<string, unknown>)._count as number;
-      return Math.min(4, 0.6 + Math.log10(count + 1) * 0.6);
+      if (count <= 1) return 0.2;
+      return Math.min(2.5, 0.2 + Math.sqrt(count) * 0.03);
     }
     return RARITY_SIZES[item.rarity as number] ?? 0.156;
   },
