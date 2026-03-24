@@ -4,29 +4,32 @@ import * as THREE from 'three';
 /**
  * Animate the globe camera to look at a specific lat/lng.
  * Uses cinematic easing: slow start, fast middle, slow end.
+ *
+ * @param zoomDistance - target camera distance (120=close, 350=default, 500=far).
+ *   If not set, keeps the current distance.
  */
 export function flyTo(
   refs: GlobeSceneRefs,
   lat: number,
   lng: number,
-  options: { duration?: number; altitude?: number } = {},
+  options: { duration?: number; altitude?: number; zoomDistance?: number } = {},
 ) {
   const { controls, camera, getCoords } = refs;
   const duration = options.duration ?? 2000;
   const altitude = options.altitude ?? 0;
+  const targetDist = options.zoomDistance ?? camera.position.length();
 
   // Target position on globe surface
   const target = getCoords(lat, lng, altitude);
   const targetVec = new THREE.Vector3(target.x, target.y, target.z);
 
-  // Calculate camera position: along the vector from origin through target, at current distance
-  const camDist = camera.position.length();
-  const camTarget = targetVec.clone().normalize().multiplyScalar(camDist);
+  // Camera end position: along the vector from origin through target, at target distance
+  const camTarget = targetVec.clone().normalize().multiplyScalar(targetDist);
 
   // Store start positions
   const startCam = camera.position.clone();
   const startTarget = controls.target.clone();
-  const endTarget = new THREE.Vector3(0, 0, 0); // orbit around origin
+  const endTarget = new THREE.Vector3(0, 0, 0);
 
   // Stop auto-rotate
   controls.autoRotate = false;
@@ -37,7 +40,7 @@ export function flyTo(
     const elapsed = performance.now() - startTime;
     const t = Math.min(elapsed / duration, 1);
 
-    // Cinematic easing: slow-fast-slow (ease-in-out cubic)
+    // Cinematic easing: ease-in-out cubic
     const ease =
       t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
 

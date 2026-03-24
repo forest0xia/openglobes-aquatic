@@ -1,261 +1,146 @@
-import { useState, useCallback, useRef, useContext, useEffect, useMemo } from 'react';
-import { Globe, FilterPanel, useSpatialIndex } from '@openglobes/core';
-import type { PointItem, GlobeSceneRefs } from '@openglobes/core';
-import { ThemeContext } from '../themes';
+import { useState, useCallback, useEffect } from 'react';
+import { Globe, FilterPanel } from '@openglobes/core';
+import type { PointItem } from '@openglobes/core';
 import { FishDetail } from './FishDetail';
 import SearchBar from './SearchBar';
 import { ZoomControls } from './ZoomControls';
-// ThemeToggle removed — Night Mode chip added to Overlays section instead
-// DepthEffect removed — user found it distracting
-import { GeoLabelsManager } from './GeoLabels';
 import { FishNearMe } from './FishNearMe';
 import { DiscoverButton } from './DiscoverButton';
 import { ListPanel } from './ListPanel';
+import { RouteDetail } from './RouteDetail';
 import { flyTo } from '../utils/flyTo';
-import { MIGRATION_ARCS, MIGRATION_ROUTES } from '../data/migrations';
-import { OCEAN_CURRENTS, CURRENTS_DEFAULT_VISIBLE } from '../data/currents';
-import { GEO_LABELS } from '../data/geoLabels';
-
-// Rarity legend config
-const RARITY_ITEMS = [
-  { key: 'common',    label: 'Common',    color: 'var(--og-rarity-common)',    hex: '#48bfe6', glow: false },
-  { key: 'uncommon',  label: 'Uncommon',  color: 'var(--og-rarity-uncommon)',  hex: '#56d6a0', glow: false },
-  { key: 'rare',      label: 'Rare',      color: 'var(--og-rarity-rare)',      hex: '#f9c74f', glow: true  },
-  { key: 'legendary', label: 'Legendary', color: 'var(--og-rarity-legendary)', hex: '#ef476f', glow: true  },
-];
+import { useGlobeControls } from '../hooks/useGlobeControls';
+import { useFilters } from '../hooks/useFilters';
+import { useMigrationRoutes } from '../hooks/useMigrationRoutes';
+import { BODY_GROUP_COLORS } from '../sprites/SpriteLoader';
 
 export function FishGlobe() {
-  const { theme, setThemeId } = useContext(ThemeContext);
-  const isNightMode = theme.id === 'bioluminescence';
-  const [filterValues, setFilterValues] = useState<Record<string, unknown>>({});
+  const globe = useGlobeControls();
+  const filters = useFilters(globe.setUpdateCamera, globe.syncSpriteLayers);
+  const migration = useMigrationRoutes(globe.sceneRefsRef);
+
   const [selectedPoint, setSelectedPoint] = useState<PointItem | null>(null);
-  const [filtersOpen, setFiltersOpen] = useState(false);
-  const [showMigrations, setShowMigrations] = useState(true);
-  const [showCurrents, setShowCurrents] = useState(CURRENTS_DEFAULT_VISIBLE);
-  // depthEffect removed
-  const [activeMonth, setActiveMonth] = useState<number | null>(null);
-  const [showFilters, setShowFilters] = useState(true);
   const [detailDismissed, setDetailDismissed] = useState(false);
-  const [labelTypes, setLabelTypes] = useState<string[]>(['ocean', 'sea', 'continent', 'island']);
-  const [listPanel, setListPanel] = useState<{ title: string; items: { id: string; name: string; extra?: string }[] } | null>(null);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [showFilters, setShowFilters] = useState(true);
+  const [listPanel, setListPanel] = useState<{
+    title: string;
+    items: { id: string; name: string; extra?: string }[];
+  } | null>(null);
 
-  // ── Scene refs for flyTo ─────────────────────────────────────────
-  const sceneRefsRef = useRef<GlobeSceneRefs | null>(null);
+  // ── Only one right-side panel at a time ─────────────────────────
+  const clearRightPanels = useCallback(() => {
+    setSelectedPoint(null);
+    setDetailDismissed(false);
+    setListPanel(null);
+    migration.setSelectedRouteId(null);
+  }, [migration]);
 
-  // ── Geographic labels ─────────────────────────────────────────────
-  const labelsManagerRef = useRef<GeoLabelsManager | null>(null);
-
-  const handleSceneReady = useCallback((refs: GlobeSceneRefs) => {
-    sceneRefsRef.current = refs;
-    labelsManagerRef.current = new GeoLabelsManager(refs.scene, refs.getCoords, GEO_LABELS);
-  }, []);
-
-  const frameCount = useRef(0);
-  const handleFrame = useCallback((dt: number) => {
-    frameCount.current++;
-    if (frameCount.current % 10 === 0 && sceneRefsRef.current) {
-      labelsManagerRef.current?.update(sceneRefsRef.current.camera);
-    }
-  }, []);
-
-  // Clean up geo labels on unmount
-  useEffect(() => {
-    return () => {
-      labelsManagerRef.current?.dispose();
-      labelsManagerRef.current = null;
-    };
-  }, []);
-
-  // ── Reset detailDismissed when a new point is selected ───────────
+  // Reset detailDismissed when a new point is selected
   useEffect(() => {
     if (selectedPoint) setDetailDismissed(false);
   }, [selectedPoint]);
 
-  // ── Sync labels visibility with labelTypes state ──────────────────
+  // When route hover opens detail, close other panels
   useEffect(() => {
-    if (!labelsManagerRef.current) return;
-    const anyVisible = labelTypes.length > 0;
-    labelsManagerRef.current.setVisible(anyVisible);
-    for (const type of ['ocean', 'sea', 'continent', 'island']) {
-      labelsManagerRef.current.setTypeVisible(type, labelTypes.includes(type));
+    if (migration.selectedRoute) {
+      setSelectedPoint(null);
+      setListPanel(null);
     }
-  }, [labelTypes]);
+  }, [migration.selectedRoute]);
 
-  // ── flyTo handler for FishNearMe ────────────────────────────────
-  const handleFlyTo = useCallback((lat: number, lng: number) => {
-    if (sceneRefsRef.current) flyTo(sceneRefsRef.current, lat, lng);
-  }, []);
+  // ── Handlers ────────────────────────────────────────────────────
 
-  // ── Discover handler — fly to a rare fish + select it ──────────
-  const handleDiscover = useCallback((point: PointItem) => {
-    if (sceneRefsRef.current) flyTo(sceneRefsRef.current, point.lat, point.lng, { duration: 2500 });
-    setTimeout(() => setSelectedPoint(point), 1500);
-  }, []);
-
-  // ── Migration routes list for ListPanel ───────────────────────
-  const migrationRouteItems = useMemo(() => {
-    return MIGRATION_ROUTES.map(r => ({
-      id: r.name,
-      name: r.name,
-      extra: `${r.species.length} species: ${r.species.slice(0, 3).join(', ')}${r.species.length > 3 ? '…' : ''}`,
-    }));
-  }, []);
-
-  // State for expanded route detail
-  const [selectedRoute, setSelectedRoute] = useState<string | null>(null);
-
-  const spatial = useSpatialIndex({
-    tileBaseUrl: '/data',
-    tileManifestUrl: '/tile-manifest.json',
-    minZoom: 0,
-    maxZoom: 6,
-    filters: filterValues,
-  });
-
-  // ── Camera throttle ─────────────────────────────────────────────────
-  // The animation loop fires handleCameraChange every frame (~60fps).
-  // useSpatialIndex internally debounces at 150ms, so we must NOT
-  // only use a trailing setTimeout (it gets perpetually reset by
-  // the next frame and never fires). Instead: call immediately when
-  // camera moves significantly, PLUS a trailing call for settling.
-  const updateCameraRef = useRef(spatial.updateCamera);
-  updateCameraRef.current = spatial.updateCamera;
-  const throttleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const lastCamRef = useRef({ dist: 0, lat: 0, lng: 0 });
-
-  const handleCameraChange = useCallback(
-    (distance: number) => {
-      const cam = sceneRefsRef.current?.camera;
-      let centerLat = 0;
-      let centerLng = 0;
-      if (cam) {
-        const { x, y, z } = cam.position;
-        const r = Math.sqrt(x * x + y * y + z * z);
-        centerLat = Math.asin(y / r) * (180 / Math.PI);
-        centerLng = Math.atan2(x, z) * (180 / Math.PI);
-      }
-
-      const halfArc = Math.asin(Math.min(1, 100 / distance)) * (180 / Math.PI);
-      const bounds = {
-        north: Math.min(85, centerLat + halfArc),
-        south: Math.max(-85, centerLat - halfArc),
-        east: Math.min(180, centerLng + halfArc),
-        west: Math.max(-180, centerLng - halfArc),
-      };
-
-      // Check if camera moved enough to warrant an immediate call
-      const prev = lastCamRef.current;
-      const moved = prev.dist === 0
-        || Math.abs(distance - prev.dist) > 0.5
-        || Math.abs(centerLat - prev.lat) > 0.3
-        || Math.abs(centerLng - prev.lng) > 0.3;
-
-      if (moved) {
-        lastCamRef.current = { dist: distance, lat: centerLat, lng: centerLng };
-        // Immediate call — useSpatialIndex debounces internally
-        updateCameraRef.current(distance, bounds);
-      }
-
-      // Trailing call to catch the final position after rotation stops
-      if (throttleRef.current) clearTimeout(throttleRef.current);
-      throttleRef.current = setTimeout(() => {
-        updateCameraRef.current(distance, bounds);
-      }, 250);
+  const handleDiscover = useCallback(
+    (point: PointItem) => {
+      if (globe.sceneRefsRef.current)
+        flyTo(globe.sceneRefsRef.current, point.lat, point.lng, { duration: 2500 });
+      setTimeout(() => {
+        clearRightPanels();
+        setSelectedPoint(point);
+      }, 1500);
     },
-    [],
+    [globe.sceneRefsRef, clearRightPanels],
   );
-  // ── end camera throttle fix ──────────────────────────────────────────
 
-  const handleFilterChange = useCallback((key: string, value: unknown) => {
-    setFilterValues((prev) => ({ ...prev, [key]: value }));
-  }, []);
+  const handleArcClick = useCallback(
+    (label: string) => {
+      clearRightPanels();
+      migration.handleArcClick(label);
+    },
+    [migration, clearRightPanels],
+  );
 
-  // Depth effect removed — user found it distracting
+  const handleRouteSelect = useCallback(
+    (routeId: string) => {
+      clearRightPanels();
+      migration.handleRouteSelect(routeId);
+    },
+    [migration, clearRightPanels],
+  );
 
-  // ── Convert clusters to renderable pseudo-points at low zoom ──────
-  const clusterPoints = useMemo((): PointItem[] => {
-    if (!spatial.isClusterZoom || spatial.clusters.length === 0) return [];
-    return spatial.clusters.map((c, i) => ({
-      id: `cluster-${i}`,
-      lat: c.lat,
-      lng: c.lng,
-      name: `${c.count.toLocaleString()} species`,
-      rarity: c.count > 500 ? 3 : c.count > 100 ? 2 : c.count > 20 ? 1 : 0,
-      _isCluster: true,
-      _count: c.count,
-      _topItems: c.topItems,
-    } as PointItem));
-  }, [spatial.isClusterZoom, spatial.clusters]);
-
-  // ── Client-side filtering (memoized) ────────────────────────────
-  const filteredPoints = useMemo(() => {
-    return spatial.points.filter((p) => {
-      const wt = filterValues.waterType;
-      if (Array.isArray(wt) && wt.length > 0) {
-        if (!wt.includes((p as Record<string, unknown>).waterType)) return false;
+  const handlePointClick = useCallback(
+    (point: PointItem) => {
+      if ((point as Record<string, unknown>)._isCluster) {
+        const topItems =
+          ((point as Record<string, unknown>)._topItems as { id: string; name: string }[]) ?? [];
+        const count = (point as Record<string, unknown>)._count as number;
+        const seen = new Set<string>();
+        const unique = topItems.filter((t) => {
+          if (seen.has(t.id)) return false;
+          seen.add(t.id);
+          return true;
+        });
+        clearRightPanels();
+        setListPanel({
+          title: `${count.toLocaleString()} species`,
+          items: unique.map((t) => ({ id: t.id, name: t.name, extra: 'Tap to view' })),
+        });
+        if (globe.sceneRefsRef.current) {
+          flyTo(globe.sceneRefsRef.current, point.lat, point.lng, {
+            duration: 2000,
+            zoomDistance: 180,
+          });
+        }
+        return;
       }
-      const rar = filterValues.rarity;
-      if (Array.isArray(rar) && rar.length > 0) {
-        const RARITY_MAP: Record<number, string> = { 0: 'Common', 1: 'Uncommon', 2: 'Rare', 3: 'Legendary' };
-        const pointRarityLabel = RARITY_MAP[(p.rarity as number) ?? 0] ?? 'Common';
-        if (!rar.includes(pointRarityLabel)) return false;
+      clearRightPanels();
+      setSelectedPoint(point);
+    },
+    [globe.sceneRefsRef, clearRightPanels],
+  );
+
+  const handleListItemClick = useCallback(
+    (id: string) => {
+      const route = migration.migrationRoutes.find((r) => r.id === id || r.name === id);
+      if (route) {
+        handleRouteSelect(route.id);
+        return;
       }
-      return true;
-    });
-  }, [spatial.points, filterValues.waterType, filterValues.rarity]);
-
-  // ── Persistent points ref for Discover / NearMe (survives cluster zoom) ──
-  const allPointsRef = useRef<PointItem[]>([]);
-  useEffect(() => {
-    if (spatial.points.length > 0) {
-      allPointsRef.current = spatial.points;
-    }
-  }, [spatial.points]);
-
-  // Show clusters at low zoom, filtered points at high zoom
-  const displayPoints = spatial.isClusterZoom ? clusterPoints : filteredPoints;
-
-  // ── Aggregate species count across all zoom levels ──────────────
-  const totalSpeciesCount = useMemo(() => {
-    if (spatial.isClusterZoom && spatial.clusters.length > 0) {
-      return spatial.clusters.reduce((sum, c) => sum + c.count, 0);
-    }
-    return filteredPoints.length;
-  }, [spatial.isClusterZoom, spatial.clusters, filteredPoints]);
-
-  // ── Clear rarity filter when entering cluster zoom ─────────────
-  useEffect(() => {
-    if (spatial.isClusterZoom && Array.isArray(filterValues.rarity) && (filterValues.rarity as string[]).length > 0) {
-      setFilterValues(prev => ({ ...prev, rarity: [] }));
-    }
-  }, [spatial.isClusterZoom]);
-
-  // ── Handle point/cluster clicks ────────────────────────────────
-  const handlePointClick = useCallback((point: PointItem) => {
-    // If it's a cluster, show species list AND zoom in
-    if ((point as Record<string, unknown>)._isCluster) {
-      const topItems = ((point as Record<string, unknown>)._topItems as { id: string; name: string }[]) ?? [];
-      const count = (point as Record<string, unknown>)._count as number;
-      setListPanel({
-        title: `${count.toLocaleString()} species`,
-        items: topItems.map(t => ({ id: t.id, name: t.name, extra: 'Tap to view' })),
-      });
-      // Also zoom in
-      if (sceneRefsRef.current) {
-        flyTo(sceneRefsRef.current, point.lat, point.lng, { duration: 1500 });
+      const found =
+        filters.allPointsRef.current.find((p) => p.id === id) ||
+        filters.allPointsRef.current.find(
+          (p) =>
+            p.name.toLowerCase().includes(id.toLowerCase()) ||
+            id.toLowerCase().includes(p.name.toLowerCase()),
+        );
+      if (found) {
+        clearRightPanels();
+        setSelectedPoint(found);
+        if (globe.sceneRefsRef.current) {
+          flyTo(globe.sceneRefsRef.current, found.lat, found.lng, { duration: 1500 });
+        }
       }
-      return;
-    }
-    setSelectedPoint(point);
-  }, []);
+    },
+    [migration.migrationRoutes, handleRouteSelect, filters.allPointsRef, globe.sceneRefsRef, clearRightPanels],
+  );
 
-  // Pass only waterType + depth to FilterPanel; render rarity as custom legend
-  const coreFilters = theme.globeTheme.filters.filter((f) => f.key !== 'rarity' && f.key !== 'depth');
-  const coreTheme = { ...theme.globeTheme, filters: coreFilters };
+  // ── Render ──────────────────────────────────────────────────────
 
   return (
     <div
       id="og-app"
+      onPointerMove={migration.handleRouteHover}
       style={{
         position: 'relative',
         width: '100vw',
@@ -266,23 +151,33 @@ export function FishGlobe() {
     >
       {/* ── Globe ───────────────────────────────────────────────────── */}
       <Globe
-        theme={theme.globeTheme}
-        points={displayPoints}
-        arcs={showMigrations ? MIGRATION_ARCS : []}
-        arcConfig={{ elevation: 0.01 }}
-        trails={showCurrents ? OCEAN_CURRENTS : []}
+        key={globe.globeSkin}
+        theme={globe.coreTheme}
+        points={filters.displayPoints}
+        trails={migration.memoTrails}
         onPointClick={handlePointClick}
-        onCameraChange={handleCameraChange}
-        onSceneReady={handleSceneReady}
-        onFrame={handleFrame}
+        onArcClick={handleArcClick}
+        onCameraChange={globe.handleCameraChange}
+        onSceneReady={globe.handleSceneReady}
+        onFrame={globe.handleFrame}
       />
 
-      {/* ── Search bar — top-center ──────────────────────────────────── */}
-      <SearchBar totalSpecies={totalSpeciesCount || 4677} />
+      {/* ── Search bar ──────────────────────────────────────────────── */}
+      <SearchBar
+        totalSpecies={filters.totalSpeciesCount || 4677}
+        onSelect={(point) => {
+          setSelectedPoint(point);
+          setListPanel(null);
+          if (globe.sceneRefsRef.current) {
+            flyTo(globe.sceneRefsRef.current, point.lat, point.lng, {
+              duration: 1500,
+              zoomDistance: 130,
+            });
+          }
+        }}
+      />
 
-      {/* Theme toggle removed — Night Mode is in Overlays section */}
-
-      {/* ── Panel controls — top-left, below search bar ──────────────── */}
+      {/* ── Panel toggle chips (desktop) ────────────────────────────── */}
       <div
         style={{
           position: 'absolute',
@@ -297,7 +192,7 @@ export function FishGlobe() {
         <button
           type="button"
           className={`og-chip${showFilters ? ' og-chip--active' : ''}`}
-          onClick={() => setShowFilters(v => !v)}
+          onClick={() => setShowFilters((v) => !v)}
           style={{ fontSize: 10, height: 26, padding: '0 10px' }}
         >
           Filters
@@ -306,208 +201,126 @@ export function FishGlobe() {
           type="button"
           className={`og-chip${selectedPoint && !detailDismissed ? ' og-chip--active' : ''}`}
           onClick={() => {
-            if (selectedPoint) setDetailDismissed(v => !v);
+            if (selectedPoint) setDetailDismissed((v) => !v);
           }}
-          style={{ fontSize: 10, height: 26, padding: '0 10px', opacity: selectedPoint ? 1 : 0.4 }}
+          style={{
+            fontSize: 10,
+            height: 26,
+            padding: '0 10px',
+            opacity: selectedPoint ? 1 : 0.4,
+          }}
         >
           Detail
         </button>
+        <button
+          type="button"
+          className={`og-chip${migration.showMigrations ? ' og-chip--active' : ''}`}
+          onClick={() => {
+            if (migration.showMigrations && migration.migrationRoutes.length > 0) {
+              setSelectedPoint(null);
+              setListPanel({
+                title: `${migration.migrationRoutes.length} Migration Routes`,
+                items: migration.migrationRouteItems,
+              });
+            }
+          }}
+          style={{ fontSize: 10, height: 26, padding: '0 10px' }}
+        >
+          Routes
+        </button>
       </div>
 
-      {/* ── Filter panel — desktop: left sidebar / mobile: bottom sheet ─ */}
-      {/* Desktop */}
+      {/* ── Filter panel (desktop) ──────────────────────────────────── */}
       {showFilters && (
-      <div
-        id="og-filters"
-        className="og-glass hidden md:block"
-        style={{
-          position: 'absolute',
-          top: 84,
-          left: 16,
-          width: 240,
-          zIndex: 10,
-          animation: 'slideInLeft 400ms cubic-bezier(0.16, 1, 0.3, 1) forwards',
-        }}
-      >
-        <div style={{ padding: '16px 16px 20px' }}>
-          {/* Header row */}
-          <div
-            style={{
-              display: 'flex',
-              justifyContent: 'center',
-              alignItems: 'center',
-              marginBottom: 16,
-            }}
-          >
-            <span className="og-mono-sm" style={{ color: 'var(--og-accent)' }}>
-              {totalSpeciesCount.toLocaleString()} species in view
-            </span>
-          </div>
-
-          {/* Water type + depth via FilterPanel */}
-          <FilterPanel
-            theme={coreTheme}
-            values={filterValues}
-            onChange={handleFilterChange}
-          />
-
-          {/* Rarity filter — clickable dots */}
-          <div style={{ marginTop: 16, opacity: spatial.isClusterZoom ? 0.3 : 1, pointerEvents: spatial.isClusterZoom ? 'none' : 'auto' }}>
-            <div className="og-section-label">
-              Rarity {spatial.isClusterZoom && <span style={{ fontSize: 9, opacity: 0.6 }}>(zoom in)</span>}
+        <div
+          id="og-filters"
+          className="og-glass hidden md:block"
+          style={{
+            position: 'absolute',
+            top: 84,
+            left: 16,
+            width: 240,
+            zIndex: 10,
+            animation: 'slideInLeft 400ms cubic-bezier(0.16, 1, 0.3, 1) forwards',
+          }}
+        >
+          <div style={{ padding: '16px 16px 20px' }}>
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'center',
+                alignItems: 'center',
+                marginBottom: 16,
+              }}
+            >
+              <span className="og-mono-sm" style={{ color: 'var(--og-accent)' }}>
+                {filters.totalSpeciesCount.toLocaleString()} species in view
+              </span>
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {RARITY_ITEMS.map((r) => {
-                const selected = Array.isArray(filterValues.rarity) ? filterValues.rarity as string[] : [];
-                const isActive = selected.length === 0 || selected.includes(r.label);
-                return (
+
+            <FilterPanel
+              theme={globe.coreTheme}
+              values={filters.filterValues}
+              onChange={filters.handleFilterChange}
+            />
+
+            {/* Animal type */}
+            <div style={{ marginTop: 16 }}>
+              <div className="og-section-label">Animal Type</div>
+              <BodyGroupChips
+                filterValues={filters.filterValues}
+                onChange={filters.handleFilterChange}
+              />
+            </div>
+
+            {/* Overlays */}
+            <div style={{ marginTop: 16 }}>
+              <div className="og-section-label">Overlays</div>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                <OverlayChips migration={migration} globe={globe} />
+              </div>
+            </div>
+
+            {/* Season */}
+            <div style={{ marginTop: 16 }}>
+              <div className="og-section-label">Season</div>
+              <SeasonChips
+                activeMonth={filters.activeMonth}
+                setActiveMonth={filters.setActiveMonth}
+              />
+            </div>
+
+            {/* Labels */}
+            <div style={{ marginTop: 16 }}>
+              <div className="og-section-label">Labels</div>
+              <LabelChips
+                labelTypes={globe.labelTypes}
+                setLabelTypes={globe.setLabelTypes}
+              />
+            </div>
+
+            {/* Globe skin */}
+            <div style={{ marginTop: 16 }}>
+              <div className="og-section-label">Globe Skin</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                {Object.entries(globe.GLOBE_SKINS).map(([key, { label }]) => (
                   <button
-                    key={r.key}
+                    key={key}
                     type="button"
-                    onClick={() => {
-                      const prev = Array.isArray(filterValues.rarity) ? filterValues.rarity as string[] : [];
-                      const next = prev.includes(r.label)
-                        ? prev.filter((s: string) => s !== r.label)
-                        : [...prev, r.label];
-                      handleFilterChange('rarity', next);
-                    }}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 8,
-                      background: 'none',
-                      border: 'none',
-                      padding: '2px 0',
-                      cursor: 'pointer',
-                      opacity: isActive ? 1 : 0.35,
-                      transition: 'opacity var(--og-transition-fast)',
-                    }}
-                  >
-                    <span
-                      style={{
-                        width: 8,
-                        height: 8,
-                        borderRadius: '50%',
-                        flexShrink: 0,
-                        background: r.color,
-                        boxShadow: r.glow ? `0 0 4px ${r.hex}4d` : undefined,
-                      }}
-                    />
-                    <span
-                      style={{
-                        fontFamily: 'var(--og-font-body)',
-                        fontSize: 12,
-                        color: 'var(--og-text-secondary)',
-                      }}
-                    >
-                      {r.label}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Overlays section */}
-          <div style={{ marginTop: 16 }}>
-            <div className="og-section-label">Overlays</div>
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-              <button
-                type="button"
-                className={`og-chip${showMigrations ? ' og-chip--active' : ''}`}
-                aria-pressed={showMigrations}
-                onClick={() => setShowMigrations((v) => !v)}
-              >
-                Migration Routes
-              </button>
-              {showMigrations && (
-                <button
-                  type="button"
-                  onClick={() => setListPanel({ title: 'Migration Routes', items: migrationRouteItems })}
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--og-text-tertiary)', fontSize: 12, padding: '0 4px' }}
-                  aria-label="Migration species info"
-                >
-                  &#8505;
-                </button>
-              )}
-              <button
-                type="button"
-                className={`og-chip${showCurrents ? ' og-chip--active' : ''}`}
-                aria-pressed={showCurrents}
-                onClick={() => setShowCurrents((v) => !v)}
-              >
-                Ocean Currents
-              </button>
-              <button
-                type="button"
-                className={`og-chip${isNightMode ? ' og-chip--active' : ''}`}
-                aria-pressed={isNightMode}
-                onClick={() => setThemeId(isNightMode ? 'fish' : 'bioluminescence')}
-              >
-                Night Mode
-              </button>
-            </div>
-          </div>
-
-          {/* Season section */}
-          <div style={{ marginTop: 16 }}>
-            <div className="og-section-label">Season</div>
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-              {[
-                { label: 'Spring', months: [3,4,5] },
-                { label: 'Summer', months: [6,7,8] },
-                { label: 'Fall', months: [9,10,11] },
-                { label: 'Winter', months: [12,1,2] },
-              ].map(s => {
-                const isActive = activeMonth !== null && s.months.includes(activeMonth);
-                return (
-                  <button
-                    key={s.label}
-                    type="button"
-                    className={`og-chip${isActive ? ' og-chip--active' : ''}`}
-                    onClick={() => setActiveMonth(isActive ? null : s.months[1])}
+                    className={`og-chip${globe.globeSkin === key ? ' og-chip--active' : ''}`}
+                    onClick={() => globe.setGlobeSkin(key)}
                     style={{ fontSize: 11 }}
                   >
-                    {s.label}
+                    {label}
                   </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Labels section */}
-          <div style={{ marginTop: 16 }}>
-            <div className="og-section-label">Labels</div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-              {[
-                { type: 'ocean', label: 'Oceans' },
-                { type: 'sea', label: 'Seas' },
-                { type: 'continent', label: 'Land' },
-                { type: 'island', label: 'Islands' },
-              ].map(lt => (
-                <button
-                  key={lt.type}
-                  type="button"
-                  className={`og-chip${labelTypes.includes(lt.type) ? ' og-chip--active' : ''}`}
-                  onClick={() => {
-                    setLabelTypes(prev =>
-                      prev.includes(lt.type)
-                        ? prev.filter(t => t !== lt.type)
-                        : [...prev, lt.type]
-                    );
-                  }}
-                  style={{ fontSize: 11 }}
-                >
-                  {lt.label}
-                </button>
-              ))}
+                ))}
+              </div>
             </div>
           </div>
         </div>
-      </div>
       )}
 
-      {/* Mobile filter toggle button */}
+      {/* ── Mobile filter toggle ────────────────────────────────────── */}
       <button
         onClick={() => setFiltersOpen(!filtersOpen)}
         className="og-glass md:hidden"
@@ -530,7 +343,7 @@ export function FishGlobe() {
         {filtersOpen ? 'Close' : 'Filters'}
       </button>
 
-      {/* Mobile filter panel — bottom sheet */}
+      {/* ── Mobile filter panel (bottom sheet) ──────────────────────── */}
       <div
         className="og-glass md:hidden"
         style={{
@@ -544,13 +357,13 @@ export function FishGlobe() {
           transition: 'transform var(--og-transition-normal)',
         }}
       >
-        {/* Drag handle */}
-        <div style={{ display: 'flex', justifyContent: 'center', paddingTop: 12, paddingBottom: 4 }}>
+        <div
+          style={{ display: 'flex', justifyContent: 'center', paddingTop: 12, paddingBottom: 4 }}
+        >
           <span className="og-drag-handle" />
         </div>
 
         <div style={{ padding: '12px 16px 24px', overflowY: 'auto', maxHeight: '60vh' }}>
-          {/* Header row */}
           <div
             style={{
               display: 'flex',
@@ -560,164 +373,51 @@ export function FishGlobe() {
             }}
           >
             <span className="og-mono-sm" style={{ color: 'var(--og-accent)' }}>
-              {totalSpeciesCount.toLocaleString()} species in view
+              {filters.totalSpeciesCount.toLocaleString()} species in view
             </span>
           </div>
 
           <FilterPanel
-            theme={coreTheme}
-            values={filterValues}
-            onChange={handleFilterChange}
+            theme={globe.coreTheme}
+            values={filters.filterValues}
+            onChange={filters.handleFilterChange}
           />
 
-          {/* Rarity filter — clickable dots */}
-          <div style={{ marginTop: 16, opacity: spatial.isClusterZoom ? 0.3 : 1, pointerEvents: spatial.isClusterZoom ? 'none' : 'auto' }}>
-            <div className="og-section-label">
-              Rarity {spatial.isClusterZoom && <span style={{ fontSize: 9, opacity: 0.6 }}>(zoom in)</span>}
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {RARITY_ITEMS.map((r) => {
-                const selected = Array.isArray(filterValues.rarity) ? filterValues.rarity as string[] : [];
-                const isActive = selected.length === 0 || selected.includes(r.label);
-                return (
-                  <button
-                    key={r.key}
-                    type="button"
-                    onClick={() => {
-                      const prev = Array.isArray(filterValues.rarity) ? filterValues.rarity as string[] : [];
-                      const next = prev.includes(r.label)
-                        ? prev.filter((s: string) => s !== r.label)
-                        : [...prev, r.label];
-                      handleFilterChange('rarity', next);
-                    }}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 8,
-                      background: 'none',
-                      border: 'none',
-                      padding: '2px 0',
-                      cursor: 'pointer',
-                      opacity: isActive ? 1 : 0.35,
-                      transition: 'opacity var(--og-transition-fast)',
-                    }}
-                  >
-                    <span
-                      style={{
-                        width: 8,
-                        height: 8,
-                        borderRadius: '50%',
-                        flexShrink: 0,
-                        background: r.color,
-                        boxShadow: r.glow ? `0 0 4px ${r.hex}4d` : undefined,
-                      }}
-                    />
-                    <span
-                      style={{
-                        fontFamily: 'var(--og-font-body)',
-                        fontSize: 12,
-                        color: 'var(--og-text-secondary)',
-                      }}
-                    >
-                      {r.label}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Overlays section (mobile) */}
           <div style={{ marginTop: 16 }}>
             <div className="og-section-label">Overlays</div>
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-              <button
-                type="button"
-                className={`og-chip${showMigrations ? ' og-chip--active' : ''}`}
-                aria-pressed={showMigrations}
-                onClick={() => setShowMigrations((v) => !v)}
-              >
-                Migration Routes
-              </button>
-              {showMigrations && (
-                <button
-                  type="button"
-                  onClick={() => setListPanel({ title: 'Migration Routes', items: migrationRouteItems })}
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--og-text-tertiary)', fontSize: 12, padding: '0 4px' }}
-                  aria-label="Migration species info"
-                >
-                  &#8505;
-                </button>
-              )}
-              <button
-                type="button"
-                className={`og-chip${showCurrents ? ' og-chip--active' : ''}`}
-                aria-pressed={showCurrents}
-                onClick={() => setShowCurrents((v) => !v)}
-              >
-                Ocean Currents
-              </button>
-              <button
-                type="button"
-                className={`og-chip${isNightMode ? ' og-chip--active' : ''}`}
-                aria-pressed={isNightMode}
-                onClick={() => setThemeId(isNightMode ? 'fish' : 'bioluminescence')}
-              >
-                Night Mode
-              </button>
+              <OverlayChips migration={migration} globe={globe} />
             </div>
           </div>
 
-          {/* Season section (mobile) */}
           <div style={{ marginTop: 16 }}>
             <div className="og-section-label">Season</div>
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-              {[
-                { label: 'Spring', months: [3,4,5] },
-                { label: 'Summer', months: [6,7,8] },
-                { label: 'Fall', months: [9,10,11] },
-                { label: 'Winter', months: [12,1,2] },
-              ].map(s => {
-                const isActive = activeMonth !== null && s.months.includes(activeMonth);
-                return (
-                  <button
-                    key={s.label}
-                    type="button"
-                    className={`og-chip${isActive ? ' og-chip--active' : ''}`}
-                    onClick={() => setActiveMonth(isActive ? null : s.months[1])}
-                    style={{ fontSize: 11 }}
-                  >
-                    {s.label}
-                  </button>
-                );
-              })}
-            </div>
+            <SeasonChips
+              activeMonth={filters.activeMonth}
+              setActiveMonth={filters.setActiveMonth}
+            />
           </div>
 
-          {/* Labels section (mobile) */}
           <div style={{ marginTop: 16 }}>
             <div className="og-section-label">Labels</div>
+            <LabelChips
+              labelTypes={globe.labelTypes}
+              setLabelTypes={globe.setLabelTypes}
+            />
+          </div>
+
+          <div style={{ marginTop: 16 }}>
+            <div className="og-section-label">Globe Skin</div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-              {[
-                { type: 'ocean', label: 'Oceans' },
-                { type: 'sea', label: 'Seas' },
-                { type: 'continent', label: 'Land' },
-                { type: 'island', label: 'Islands' },
-              ].map(lt => (
+              {Object.entries(globe.GLOBE_SKINS).map(([key, { label }]) => (
                 <button
-                  key={lt.type}
+                  key={key}
                   type="button"
-                  className={`og-chip${labelTypes.includes(lt.type) ? ' og-chip--active' : ''}`}
-                  onClick={() => {
-                    setLabelTypes(prev =>
-                      prev.includes(lt.type)
-                        ? prev.filter(t => t !== lt.type)
-                        : [...prev, lt.type]
-                    );
-                  }}
+                  className={`og-chip${globe.globeSkin === key ? ' og-chip--active' : ''}`}
+                  onClick={() => globe.setGlobeSkin(key)}
                   style={{ fontSize: 11 }}
                 >
-                  {lt.label}
+                  {label}
                 </button>
               ))}
             </div>
@@ -725,65 +425,51 @@ export function FishGlobe() {
         </div>
       </div>
 
-      {/* ── Species detail drawer ────────────────────────────────────── */}
+      {/* ── Species detail ──────────────────────────────────────────── */}
       {selectedPoint && !detailDismissed && (
         <FishDetail point={selectedPoint} onClose={() => setSelectedPoint(null)} />
       )}
 
-      {/* Depth effect overlay removed */}
+      {/* ── Route detail ────────────────────────────────────────────── */}
+      {migration.selectedRoute && (
+        <RouteDetail
+          route={migration.selectedRoute}
+          onClose={() => migration.setSelectedRouteId(null)}
+        />
+      )}
 
-      {/* ── List panel (cluster species / migration routes) ───────── */}
+      {/* ── List panel ──────────────────────────────────────────────── */}
       {listPanel && (
         <ListPanel
           title={listPanel.title}
           items={listPanel.items}
-          onClose={() => setListPanel(null)}
-          onItemClick={(id) => {
-            // Check if this is a migration route name — show species list
-            const route = MIGRATION_ROUTES.find(r => r.name === id);
-            if (route) {
-              setListPanel({
-                title: route.name,
-                items: route.species.map(s => ({ id: s, name: s, extra: route.description })),
-              });
-              return;
-            }
-            // Try exact ID match first, then name match
-            const found = allPointsRef.current.find(p => p.id === id)
-              || allPointsRef.current.find(p =>
-                p.name.toLowerCase().includes(id.toLowerCase())
-                || id.toLowerCase().includes(p.name.toLowerCase())
-              );
-            if (found) {
-              setSelectedPoint(found);
-              setListPanel(null);
-              if (sceneRefsRef.current) {
-                flyTo(sceneRefsRef.current, found.lat, found.lng, { duration: 1500 });
-              }
-            }
+          onClose={() => {
+            setListPanel(null);
+            migration.setSelectedRouteId(null);
           }}
+          onItemClick={handleListItemClick}
         />
       )}
 
-      {/* ── Zoom controls — bottom-right ─────────────────────────────── */}
+      {/* ── Zoom controls ───────────────────────────────────────────── */}
       <ZoomControls
         onZoomIn={() => {
           const canvas = document.querySelector('#og-app canvas');
-          if (canvas) canvas.dispatchEvent(new WheelEvent('wheel', { deltaY: -300, bubbles: true }));
+          if (canvas)
+            canvas.dispatchEvent(new WheelEvent('wheel', { deltaY: -300, bubbles: true }));
         }}
         onZoomOut={() => {
           const canvas = document.querySelector('#og-app canvas');
-          if (canvas) canvas.dispatchEvent(new WheelEvent('wheel', { deltaY: 300, bubbles: true }));
+          if (canvas)
+            canvas.dispatchEvent(new WheelEvent('wheel', { deltaY: 300, bubbles: true }));
         }}
       />
 
-      {/* ── Discover rare fish — bottom-right, above zoom ──────────── */}
-      <DiscoverButton points={allPointsRef.current} onDiscover={handleDiscover} />
+      {/* ── Discover / Near Me ──────────────────────────────────────── */}
+      <DiscoverButton points={filters.allPointsRef.current} onDiscover={handleDiscover} />
+      <FishNearMe points={filters.allPointsRef.current} onFlyTo={globe.handleFlyTo} />
 
-      {/* ── Fish Near Me — bottom-left ─────────────────────────────── */}
-      <FishNearMe points={allPointsRef.current} onFlyTo={handleFlyTo} />
-
-      {/* ── Attribution — bottom-center ──────────────────────────────── */}
+      {/* ── Attribution ─────────────────────────────────────────────── */}
       <div
         id="og-attribution"
         style={{
@@ -798,7 +484,6 @@ export function FishGlobe() {
           opacity: 0.35,
         }}
       >
-        {/* Clock icon */}
         <svg
           width="12"
           height="12"
@@ -821,12 +506,12 @@ export function FishGlobe() {
             whiteSpace: 'nowrap',
           }}
         >
-          Data: FishBase (CC-BY-NC) + GBIF
+          Data: FishBase + SeaLifeBase (CC-BY-NC) + GBIF
         </span>
       </div>
 
-      {/* ── Loading indicator ────────────────────────────────────────── */}
-      {spatial.loading && (
+      {/* ── Loading indicator ───────────────────────────────────────── */}
+      {filters.spatial.loading && (
         <div
           className="og-glass"
           style={{
@@ -841,9 +526,226 @@ export function FishGlobe() {
             borderRadius: 'var(--og-radius-sm)',
           }}
         >
-          Loading tiles…
+          Loading tiles&hellip;
         </div>
       )}
+
+      {/* ── Route hover tooltip ─────────────────────────────────────── */}
+      {migration.routeTooltip && (
+        <div
+          className="og-glass"
+          onClick={() => {
+            handleRouteSelect(migration.routeTooltip!.route.id);
+            migration.setRouteTooltip(null);
+          }}
+          style={{
+            position: 'fixed',
+            left: migration.routeTooltip.x + 12,
+            top: migration.routeTooltip.y - 10,
+            zIndex: 30,
+            padding: '8px 12px',
+            cursor: 'pointer',
+            maxWidth: 250,
+            borderRadius: 'var(--og-radius-sm)',
+          }}
+        >
+          <div
+            style={{
+              fontFamily: 'var(--og-font-body)',
+              fontSize: 12,
+              color: 'var(--og-text-primary)',
+              fontWeight: 500,
+            }}
+          >
+            {migration.routeTooltip.route.name}
+          </div>
+          <div
+            style={{
+              fontFamily: 'var(--og-font-mono)',
+              fontSize: 10,
+              color: 'var(--og-text-tertiary)',
+              marginTop: 2,
+            }}
+          >
+            {migration.routeTooltip.route.species} &middot; {migration.routeTooltip.route.type}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Extracted sub-components to reduce duplication ───────────────────
+
+function OverlayChips({
+  migration,
+  globe,
+}: {
+  migration: ReturnType<typeof useMigrationRoutes>;
+  globe: ReturnType<typeof useGlobeControls>;
+}) {
+  return (
+    <>
+      <button
+        type="button"
+        className={`og-chip${migration.showMigrations ? ' og-chip--active' : ''}`}
+        aria-pressed={migration.showMigrations}
+        onClick={() => migration.setShowMigrations((v) => !v)}
+      >
+        Migration Routes
+      </button>
+      {migration.showMigrations && migration.migrationRoutes.length > 0 && (
+        <div
+          style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', marginTop: 4 }}
+        >
+          <input
+            type="range"
+            min={1}
+            max={migration.migrationRoutes.length}
+            value={migration.maxMigrationRoutes || migration.migrationRoutes.length}
+            onChange={(e) => migration.setMaxMigrationRoutes(parseInt(e.target.value))}
+            style={{ flex: 1, accentColor: 'var(--og-accent)' }}
+          />
+          <span className="og-mono-sm" style={{ fontSize: 10, whiteSpace: 'nowrap' }}>
+            {migration.maxMigrationRoutes || migration.migrationRoutes.length}/
+            {migration.migrationRoutes.length}
+          </span>
+        </div>
+      )}
+      <button
+        type="button"
+        className={`og-chip${migration.showCurrents ? ' og-chip--active' : ''}`}
+        aria-pressed={migration.showCurrents}
+        onClick={() => migration.setShowCurrents((v) => !v)}
+      >
+        Ocean Currents
+      </button>
+      <button
+        type="button"
+        className={`og-chip${globe.isNightMode ? ' og-chip--active' : ''}`}
+        aria-pressed={globe.isNightMode}
+        onClick={() => globe.setThemeId(globe.isNightMode ? 'fish' : 'bioluminescence')}
+      >
+        Night Mode
+      </button>
+    </>
+  );
+}
+
+function SeasonChips({
+  activeMonth,
+  setActiveMonth,
+}: {
+  activeMonth: number | null;
+  setActiveMonth: (m: number | null) => void;
+}) {
+  const seasons = [
+    { label: 'Spring', months: [3, 4, 5] },
+    { label: 'Summer', months: [6, 7, 8] },
+    { label: 'Fall', months: [9, 10, 11] },
+    { label: 'Winter', months: [12, 1, 2] },
+  ];
+  return (
+    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+      {seasons.map((s) => {
+        const isActive = activeMonth !== null && s.months.includes(activeMonth);
+        return (
+          <button
+            key={s.label}
+            type="button"
+            className={`og-chip${isActive ? ' og-chip--active' : ''}`}
+            onClick={() => setActiveMonth(isActive ? null : s.months[1])}
+            style={{ fontSize: 11 }}
+          >
+            {s.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function LabelChips({
+  labelTypes,
+  setLabelTypes,
+}: {
+  labelTypes: string[];
+  setLabelTypes: React.Dispatch<React.SetStateAction<string[]>>;
+}) {
+  const types = [
+    { type: 'ocean', label: 'Oceans' },
+    { type: 'sea', label: 'Seas' },
+    { type: 'continent', label: 'Land' },
+    { type: 'island', label: 'Islands' },
+  ];
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+      {types.map((lt) => (
+        <button
+          key={lt.type}
+          type="button"
+          className={`og-chip${labelTypes.includes(lt.type) ? ' og-chip--active' : ''}`}
+          onClick={() =>
+            setLabelTypes((prev) =>
+              prev.includes(lt.type)
+                ? prev.filter((t) => t !== lt.type)
+                : [...prev, lt.type],
+            )
+          }
+          style={{ fontSize: 11 }}
+        >
+          {lt.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+const BODY_GROUP_CHIPS = [
+  { key: 'fish', label: 'Fish' },
+  { key: 'mammal', label: 'Mammals' },
+  { key: 'reptile', label: 'Reptiles' },
+  { key: 'cephalopod', label: 'Cephalopods' },
+  { key: 'cnidarian', label: 'Cnidarians' },
+  { key: 'crustacean', label: 'Crustaceans' },
+  { key: 'echinoderm', label: 'Echinoderms' },
+  { key: 'mollusk', label: 'Mollusks' },
+];
+
+function BodyGroupChips({
+  filterValues,
+  onChange,
+}: {
+  filterValues: Record<string, unknown>;
+  onChange: (key: string, value: unknown) => void;
+}) {
+  const selected = (filterValues.bodyGroup as string[]) ?? [];
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+      {BODY_GROUP_CHIPS.map((bg) => {
+        const isActive = selected.includes(bg.key);
+        const color = BODY_GROUP_COLORS[bg.key];
+        return (
+          <button
+            key={bg.key}
+            type="button"
+            className={`og-chip${isActive ? ' og-chip--active' : ''}`}
+            onClick={() => {
+              const next = isActive
+                ? selected.filter((k) => k !== bg.key)
+                : [...selected, bg.key];
+              onChange('bodyGroup', next.length > 0 ? next : undefined);
+            }}
+            style={{
+              fontSize: 11,
+              borderColor: isActive ? color : undefined,
+              color: isActive ? color : undefined,
+            }}
+          >
+            {bg.label}
+          </button>
+        );
+      })}
     </div>
   );
 }

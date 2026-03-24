@@ -1,19 +1,37 @@
-name: Deploy to Cloudflare Pages
+name: Deploy to GitHub Pages
 
 on:
   push:
     branches: [main]
 
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Fetch fish data from ETL repo
+      - name: Fetch aquatic data from ETL repo
         run: |
           git clone --depth 1 https://github.com/forest0xia/openglobes-etl.git /tmp/etl
-          cp -r /tmp/etl/output/fish ./data
+          cp -r /tmp/etl/output/aquatic ./data
+
+      - name: Build core engine
+        run: |
+          git clone --depth 1 https://github.com/forest0xia/openglobes-core.git ../openglobes-core
+          cd ../openglobes-core && npm install --ignore-scripts && npm run build
+          cd -
 
       - uses: pnpm/action-setup@v4
 
@@ -27,9 +45,12 @@ jobs:
           pnpm install
           pnpm build
 
-      - name: Deploy to Cloudflare Pages
-        uses: cloudflare/wrangler-action@v3
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
         with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy dist --project-name=openglobes-fish
+          path: dist
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

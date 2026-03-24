@@ -1,8 +1,11 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, type PointerEvent as ReactPointerEvent } from 'react';
 import type { PointItem } from '@openglobes/core';
 import { SCHOOLING_SPECIES } from '../data/schooling';
 // DepthStrip removed — user found it confusing
 import { SizeComparison } from './SizeComparison';
+
+// Module-level variable to persist drag position across hide/show cycles
+let savedDragPos: { x: number; y: number } | null = null;
 
 const parseCm = (str: string): number | null => {
   const match = str.match(/([\d.]+)\s*cm/);
@@ -74,6 +77,33 @@ export function FishDetail({ point, onClose }: FishDetailProps) {
   const [showSizeComp, setShowSizeComp] = useState(false);
   const galleryRef = useRef<HTMLDivElement>(null);
 
+  // ── Drag state ──────────────────────────────────────────────────
+  const [dragPos, setDragPos] = useState<{ x: number; y: number } | null>(savedDragPos);
+  const dragStartRef = useRef<{ mx: number; my: number; px: number; py: number } | null>(null);
+
+  const handleDragStart = (e: ReactPointerEvent) => {
+    const rect = (e.currentTarget.closest('#og-detail') as HTMLElement)?.getBoundingClientRect();
+    if (!rect) return;
+    dragStartRef.current = { mx: e.clientX, my: e.clientY, px: rect.left, py: rect.top };
+    e.currentTarget.setPointerCapture(e.pointerId);
+  };
+
+  const handleDragMove = (e: ReactPointerEvent) => {
+    if (!dragStartRef.current) return;
+    const dx = e.clientX - dragStartRef.current.mx;
+    const dy = e.clientY - dragStartRef.current.my;
+    const newPos = {
+      x: dragStartRef.current.px + dx,
+      y: dragStartRef.current.py + dy,
+    };
+    setDragPos(newPos);
+    savedDragPos = newPos;
+  };
+
+  const handleDragEnd = () => {
+    dragStartRef.current = null;
+  };
+
   useEffect(() => {
     setLoading(true);
     setDetail(null);
@@ -94,17 +124,18 @@ export function FishDetail({ point, onClose }: FishDetailProps) {
       id="og-detail"
       className="og-glass"
       style={{
-        /* Desktop: absolute positioned sidebar */
-        position: 'absolute',
-        top: 60,
-        right: 16,
+        /* Desktop: fixed positioned sidebar, draggable */
+        position: 'fixed',
+        top: dragPos?.y ?? 60,
+        right: dragPos ? undefined : 16,
+        left: dragPos?.x ?? undefined,
         width: 280,
         zIndex: 10,
-        animation: 'slideInRight 400ms cubic-bezier(0.16, 1, 0.3, 1) forwards',
+        animation: dragPos ? undefined : 'slideInRight 400ms cubic-bezier(0.16, 1, 0.3, 1) forwards',
         /* Mobile overrides applied via media query below */
       }}
     >
-      {/* Mobile drag handle — hidden on desktop via inline media logic */}
+      {/* Mobile override — on mobile, panel becomes a bottom sheet */}
       <style>{`
         @media (max-width: 767px) {
           #og-detail {
@@ -116,57 +147,60 @@ export function FishDetail({ point, onClose }: FishDetailProps) {
             width: auto !important;
             border-radius: var(--og-radius-xl) var(--og-radius-xl) 0 0 !important;
           }
-          #og-detail-drag-handle {
-            display: block !important;
-          }
         }
       `}</style>
 
-      {/* Drag handle (mobile only) */}
+      {/* Drag handle — always visible on desktop, also acts as mobile handle */}
       <div
+        onPointerDown={handleDragStart}
+        onPointerMove={handleDragMove}
+        onPointerUp={handleDragEnd}
         style={{
-          paddingTop: 12,
-          paddingBottom: 4,
+          cursor: 'grab',
+          padding: '6px 0',
           display: 'flex',
           justifyContent: 'center',
         }}
       >
-        <span
-          id="og-detail-drag-handle"
-          className="og-drag-handle"
-          style={{ display: 'none' }}
-        />
+        <div style={{
+          width: 30,
+          height: 3,
+          borderRadius: 9999,
+          background: 'var(--og-text-tertiary)',
+          opacity: 0.4,
+        }} />
       </div>
 
+      {/* Close button — positioned at very top-right of panel */}
+      <button
+        type="button"
+        onClick={onClose}
+        aria-label="Close"
+        style={{
+          position: 'absolute',
+          top: 8,
+          right: 8,
+          width: 24,
+          height: 24,
+          borderRadius: 'var(--og-radius-sm)',
+          border: 'none',
+          background: 'transparent',
+          color: 'var(--og-text-tertiary)',
+          cursor: 'pointer',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontSize: 14,
+          transition: 'color var(--og-transition-fast)',
+          zIndex: 2,
+        }}
+        onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--og-text-primary)')}
+        onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--og-text-tertiary)')}
+      >
+        ×
+      </button>
+
       <div style={{ padding: 20, position: 'relative' }}>
-        {/* Close button */}
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close"
-          style={{
-            position: 'absolute',
-            top: 12,
-            right: 12,
-            width: 28,
-            height: 28,
-            borderRadius: 'var(--og-radius-sm)',
-            border: 'none',
-            background: 'transparent',
-            color: 'var(--og-text-tertiary)',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontSize: 16,
-            transition: 'color var(--og-transition-fast)',
-            zIndex: 1,
-          }}
-          onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--og-text-primary)')}
-          onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--og-text-tertiary)')}
-        >
-          ×
-        </button>
 
         {/* Header row */}
         <div

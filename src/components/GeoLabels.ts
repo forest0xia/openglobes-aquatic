@@ -22,10 +22,10 @@ interface LabelStyle {
 }
 
 const TYPE_STYLES: Record<GeoLabel['type'], LabelStyle> = {
-  ocean:     { opacity: 0.15, uppercase: true,  baseFontSize: 14 },
-  sea:       { opacity: 0.12, uppercase: false, baseFontSize: 11 },
-  continent: { opacity: 0.08, uppercase: true,  baseFontSize: 13 },
-  island:    { opacity: 0.10, uppercase: false, baseFontSize: 10 },
+  ocean:     { opacity: 0.25, uppercase: true,  baseFontSize: 10 },
+  sea:       { opacity: 0.20, uppercase: false, baseFontSize: 7 },
+  continent: { opacity: 0.18, uppercase: true,  baseFontSize: 7 },
+  island:    { opacity: 0.18, uppercase: false, baseFontSize: 5 },
 };
 
 /**
@@ -57,8 +57,10 @@ function createTextSprite(text: string, fontSize: number, opacity: number, upper
     depthWrite: false,
   });
   const sprite = new THREE.Sprite(material);
-  // Scale the sprite so longer labels aren't too narrow
-  sprite.scale.set(fontSize * 3, fontSize * 0.4, 1);
+  // Scale: ensure minimum visible size even for small labels
+  const w = Math.max(8, fontSize * 2.5);
+  const h = Math.max(1.5, fontSize * 0.35);
+  sprite.scale.set(w, h, 1);
   return sprite;
 }
 
@@ -66,6 +68,7 @@ export class GeoLabelsManager {
   private sprites: THREE.Sprite[] = [];
   private scene: THREE.Scene;
   private visible = true;
+  private typeVisibility: Record<string, boolean> = { ocean: true, sea: true, continent: true, island: true };
 
   constructor(
     scene: THREE.Scene,
@@ -101,26 +104,29 @@ export class GeoLabelsManager {
 
   /** Set visibility for all labels of a given type. */
   setTypeVisible(type: string, visible: boolean): void {
-    for (const sprite of this.sprites) {
-      if (sprite.userData.type === type) {
-        sprite.visible = this.visible && visible;
-      }
-    }
+    this.typeVisibility[type] = visible;
   }
 
-  /** Hide labels on the far side of the globe. Call each frame. */
+  // Reusable vectors — allocated once, reused every update()
+  private _camDir = new THREE.Vector3();
+  private _spriteDir = new THREE.Vector3();
+
+  /** Hide labels on the far side of the globe. Respects per-type visibility. */
   update(camera: THREE.Camera): void {
     if (!this.visible) return;
-    const camDir = new THREE.Vector3();
-    camera.getWorldPosition(camDir);
-    camDir.normalize();
+    camera.getWorldPosition(this._camDir);
+    this._camDir.normalize();
 
-    for (let i = 0; i < this.sprites.length; i++) {
-      const sprite = this.sprites[i];
-      const spriteDir = sprite.position.clone().normalize();
-      // Dot product: >0 means same hemisphere as camera (visible)
-      const dot = camDir.dot(spriteDir);
-      sprite.visible = dot > 0.1; // slight threshold to hide labels near the edge
+    for (const sprite of this.sprites) {
+      const type = sprite.userData.type as string;
+      const typeOn = this.typeVisibility[type] !== false;
+      if (!typeOn) {
+        sprite.visible = false;
+        continue;
+      }
+      this._spriteDir.copy(sprite.position).normalize();
+      const dot = this._camDir.dot(this._spriteDir);
+      sprite.visible = dot > 0.3;
     }
   }
 

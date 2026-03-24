@@ -1,8 +1,8 @@
 # 🐟 FishGlobe
 
-Interactive 3D globe showing 35,000+ fish species worldwide.
+Interactive 3D globe showing 170,000+ aquatic species worldwide.
 
-**Live:** [fish.openglobes.com](https://fish.openglobes.com)
+**Live:** [aquatic.openglobes.com](https://aquatic.openglobes.com)
 
 Part of [OpenGlobes](https://openglobes.com) — open-source 3D data globe visualizations.
 
@@ -11,10 +11,10 @@ Part of [OpenGlobes](https://openglobes.com) — open-source 3D data globe visua
 ```bash
 # Link the core engine (sibling directory)
 cd ../openglobes-core && pnpm link --global
-cd ../openglobes-fish && pnpm link --global @openglobes/core
+cd ../openglobes-aquatic && pnpm link --global @openglobes/core
 
 # Symlink data from ETL output (do NOT copy — keeps in sync)
-ln -s ../openglobes-etl/output/fish data
+ln -s ../openglobes-etl/output/aquatic data
 
 # Install and run
 pnpm install
@@ -24,7 +24,7 @@ pnpm dev
 ## Production
 
 Deployed automatically via GitHub Actions — the workflow clones the ETL repo at
-build time and deploys to Cloudflare Pages. See `.github/workflows/deploy.yml`.
+build time and deploys to GitHub Pages. See `.github/workflows/deploy.yml`.
 
 ## Theming
 
@@ -55,4 +55,4 @@ See `../openglobes-core/docs/DESIGN_SYSTEM.md` for the full specification.
 
 ## License
 
-Code: MIT. Data: see attribution in each species file.
+Code: AGPL-3.0. Data: inherits source licenses (FishBase CC-BY-NC, GBIF CC0/CC-BY) — see attribution in each species file.
