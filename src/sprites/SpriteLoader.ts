@@ -1,13 +1,20 @@
 import * as THREE from 'three';
+import { addStep, completeStep } from '../utils/loadProgress';
 
 // ---------------------------------------------------------------------------
-// SpriteLoader — fetch SVG files, tint by body group, cache as Three.js textures.
+// SpriteLoader — PNG texture loader with concurrency-limited queue.
 //
-// SVGs are white-stroke outlines (no fill). We render them to canvas at a
-// fixed size, apply body-group tint color, and create a CanvasTexture.
+// - Max 8 concurrent fetches, viewport-aware cancellation
+// - Pending-load deduplication (same URL → same promise)
+// - LRU eviction: textures unused after N syncs are disposed
 // ---------------------------------------------------------------------------
 
-/** Body-group → neon glow color */
+addStep('sprites', 4, 'Loading species sprites');
+let spritesStepDone = false;
+let spritesLoaded = 0;
+const SPRITES_FIRST_BATCH = 8;
+
+/** Body-group → accent color (used by filter UI chips, not sprite rendering) */
 export const BODY_GROUP_COLORS: Record<string, string> = {
   fish:        '#00E5FF',
   mammal:      '#FFF5E6',
@@ -20,142 +27,167 @@ export const BODY_GROUP_COLORS: Record<string, string> = {
   other:       '#00E5FF',
 };
 
-const SPRITE_SIZE = 64; // px — canvas render size
-const GLOW_BLUR = 6;    // px — neon glow radius
+const MAX_CONCURRENT = 8;
+const MAX_CACHED_TEXTURES = 80; // LRU cap — dispose oldest beyond this
 
-/** Cache: key = `${svgUrl}:${color}` → texture */
-const textureCache = new Map<string, THREE.CanvasTexture>();
+const loader = new THREE.TextureLoader();
 
-/** Cache: svgUrl → raw SVG text */
-const svgTextCache = new Map<string, Promise<string>>();
+/** Resolved texture cache: url → texture */
+const textureCache = new Map<string, THREE.Texture>();
 
-/** Fetch SVG text with dedup */
-function fetchSvgText(url: string): Promise<string> {
-  let pending = svgTextCache.get(url);
-  if (!pending) {
-    pending = fetch(url).then((r) => {
-      if (!r.ok) throw new Error(`SVG fetch failed: ${url}`);
-      return r.text();
-    });
-    svgTextCache.set(url, pending);
+/** Pending load dedup: url → promise (removed on resolve/reject) */
+const pendingLoads = new Map<string, Promise<THREE.Texture>>();
+
+/** LRU order: most recently used URL at end */
+const lruOrder: string[] = [];
+
+function touchLru(url: string): void {
+  const idx = lruOrder.indexOf(url);
+  if (idx !== -1) lruOrder.splice(idx, 1);
+  lruOrder.push(url);
+
+  // Evict oldest if over cap
+  while (lruOrder.length > MAX_CACHED_TEXTURES) {
+    const evictUrl = lruOrder.shift()!;
+    const tex = textureCache.get(evictUrl);
+    if (tex) {
+      tex.dispose();
+      textureCache.delete(evictUrl);
+    }
   }
-  return pending;
 }
 
-/**
- * Load an SVG sprite and return a tinted CanvasTexture.
- * Results are cached — calling twice with the same url+color returns the same texture.
- */
-export async function loadSpriteTexture(
-  svgUrl: string,
-  bodyGroup: string,
-): Promise<THREE.CanvasTexture> {
-  const color = BODY_GROUP_COLORS[bodyGroup] ?? BODY_GROUP_COLORS.other;
-  const cacheKey = `${svgUrl}:${color}`;
+// ---------------------------------------------------------------------------
+// Queue
+// ---------------------------------------------------------------------------
 
-  const cached = textureCache.get(cacheKey);
-  if (cached) return cached;
-
-  const svgText = await fetchSvgText(svgUrl);
-
-  const texture = renderSvgToTexture(svgText, color);
-  textureCache.set(cacheKey, texture);
-  return texture;
+interface QueueEntry {
+  url: string;
+  resolve: (tex: THREE.Texture) => void;
+  reject: (err: unknown) => void;
+  cancelled: boolean;
 }
 
-/**
- * Synchronous version — returns cached texture or a 1x1 transparent placeholder.
- * Kicks off async load in background; caller should re-check later.
- */
-export function getSpriteTexture(
-  svgUrl: string,
-  bodyGroup: string,
-): THREE.CanvasTexture {
-  const color = BODY_GROUP_COLORS[bodyGroup] ?? BODY_GROUP_COLORS.other;
-  const cacheKey = `${svgUrl}:${color}`;
+const queue: QueueEntry[] = [];
+let inFlight = 0;
+let neededUrls: Set<string> | null = null;
 
-  const cached = textureCache.get(cacheKey);
-  if (cached) return cached;
+function processQueue(): void {
+  while (inFlight < MAX_CONCURRENT && queue.length > 0) {
+    const entry = queue.shift()!;
 
-  // Return placeholder and start async load
+    if (entry.cancelled || (neededUrls && !neededUrls.has(entry.url))) {
+      entry.reject(new Error('cancelled'));
+      continue;
+    }
+
+    const cached = textureCache.get(entry.url);
+    if (cached) {
+      touchLru(entry.url);
+      entry.resolve(cached);
+      continue;
+    }
+
+    inFlight++;
+    loader.load(
+      entry.url,
+      (tex) => {
+        tex.colorSpace = THREE.SRGBColorSpace;
+        textureCache.set(entry.url, tex);
+        touchLru(entry.url);
+        inFlight--;
+        entry.resolve(tex);
+        pendingLoads.delete(entry.url);
+        if (!spritesStepDone) {
+          spritesLoaded++;
+          if (spritesLoaded >= SPRITES_FIRST_BATCH) {
+            spritesStepDone = true;
+            completeStep('sprites');
+          }
+        }
+        processQueue();
+      },
+      undefined,
+      (err) => {
+        inFlight--;
+        pendingLoads.delete(entry.url);
+        entry.reject(err);
+        processQueue();
+      },
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
+let placeholderTexture: THREE.Texture | null = null;
+
+function getPlaceholder(): THREE.Texture {
   if (!placeholderTexture) {
     const c = document.createElement('canvas');
     c.width = 1;
     c.height = 1;
     placeholderTexture = new THREE.CanvasTexture(c);
   }
-
-  // Fire and forget — next frame will pick up the real texture
-  loadSpriteTexture(svgUrl, bodyGroup).catch(() => {});
-
   return placeholderTexture;
 }
 
-let placeholderTexture: THREE.CanvasTexture | null = null;
+/**
+ * Load a PNG sprite texture (async). Cached + deduped.
+ */
+export function loadSpriteTexture(url: string): Promise<THREE.Texture> {
+  const cached = textureCache.get(url);
+  if (cached) {
+    touchLru(url);
+    return Promise.resolve(cached);
+  }
 
-/** Render SVG string to a canvas texture with neon glow tint */
-function renderSvgToTexture(svgText: string, color: string): THREE.CanvasTexture {
-  const canvas = document.createElement('canvas');
-  const pad = GLOW_BLUR * 2;
-  canvas.width = SPRITE_SIZE + pad * 2;
-  canvas.height = SPRITE_SIZE + pad * 2;
-  const ctx = canvas.getContext('2d')!;
+  // Dedup: if already loading this URL, return the same promise
+  const pending = pendingLoads.get(url);
+  if (pending) return pending;
 
-  // Create an Image from the SVG (tinted white → we composite with color)
-  const img = new Image();
-  const blob = new Blob([svgText], { type: 'image/svg+xml' });
-  const url = URL.createObjectURL(blob);
-
-  // We render synchronously by drawing to a temp canvas first
-  // But Image loading is async — so we use a two-pass approach:
-  // First pass: return a texture, then update it when the image loads
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.needsUpdate = true;
-
-  img.onload = () => {
-    // Glow layer
-    ctx.save();
-    ctx.shadowColor = color;
-    ctx.shadowBlur = GLOW_BLUR;
-    ctx.shadowOffsetX = 0;
-    ctx.shadowOffsetY = 0;
-    // Draw twice for stronger glow
-    ctx.drawImage(img, pad, pad, SPRITE_SIZE, SPRITE_SIZE);
-    ctx.drawImage(img, pad, pad, SPRITE_SIZE, SPRITE_SIZE);
-    ctx.restore();
-
-    // Tint: use globalCompositeOperation to colorize the white strokes
-    ctx.save();
-    ctx.globalCompositeOperation = 'source-atop';
-    ctx.fillStyle = color;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.restore();
-
-    texture.needsUpdate = true;
-    URL.revokeObjectURL(url);
-  };
-
-  img.onerror = () => {
-    URL.revokeObjectURL(url);
-  };
-
-  img.src = url;
-  return texture;
+  const promise = new Promise<THREE.Texture>((resolve, reject) => {
+    queue.push({ url, resolve, reject, cancelled: false });
+    processQueue();
+  });
+  pendingLoads.set(url, promise);
+  return promise;
 }
 
-/** Get the hex color for a body group */
-export function getBodyGroupColor(bodyGroup: string): string {
-  return BODY_GROUP_COLORS[bodyGroup] ?? BODY_GROUP_COLORS.other;
+/**
+ * Synchronous — returns cached texture or 1×1 placeholder.
+ */
+export function getSpriteTexture(url: string): THREE.Texture {
+  const cached = textureCache.get(url);
+  if (cached) {
+    touchLru(url);
+    return cached;
+  }
+  loadSpriteTexture(url).catch(() => {});
+  return getPlaceholder();
 }
 
-/** Preload a batch of sprite URLs (fire-and-forget) */
-export function preloadSprites(items: { sprite: string; bodyGroup?: string }[]): void {
-  for (const item of items) {
-    if (item.sprite) {
-      loadSpriteTexture(
-        `/data/sprites/${item.sprite}`,
-        item.bodyGroup ?? 'fish',
-      ).catch(() => {});
+/**
+ * Mark which URLs the current viewport needs.
+ * Queued entries for other URLs are cancelled.
+ */
+export function markNeeded(urls: string[]): void {
+  neededUrls = new Set(urls);
+  for (const entry of queue) {
+    if (!neededUrls.has(entry.url) && !textureCache.has(entry.url)) {
+      entry.cancelled = true;
     }
+  }
+}
+
+export function clearNeeded(): void {
+  neededUrls = null;
+}
+
+export function preloadSprites(items: { sprite: string }[]): void {
+  for (const item of items) {
+    if (item.sprite) loadSpriteTexture(`/data/sprites/${item.sprite}`).catch(() => {});
   }
 }

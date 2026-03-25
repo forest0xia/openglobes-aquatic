@@ -1,13 +1,14 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, lazy, Suspense } from 'react';
 import { Globe, FilterPanel } from '@openglobes/core';
 import type { PointItem } from '@openglobes/core';
-import { FishDetail } from './FishDetail';
 import SearchBar from './SearchBar';
 import { ZoomControls } from './ZoomControls';
 import { FishNearMe } from './FishNearMe';
 import { DiscoverButton } from './DiscoverButton';
-import { ListPanel } from './ListPanel';
-import { RouteDetail } from './RouteDetail';
+
+const FishDetail = lazy(() => import('./FishDetail').then(m => ({ default: m.FishDetail })));
+const RouteDetail = lazy(() => import('./RouteDetail').then(m => ({ default: m.RouteDetail })));
+const ListPanel = lazy(() => import('./ListPanel').then(m => ({ default: m.ListPanel })));
 import { flyTo } from '../utils/flyTo';
 import { useGlobeControls } from '../hooks/useGlobeControls';
 import { useFilters } from '../hooks/useFilters';
@@ -427,28 +428,34 @@ export function FishGlobe() {
 
       {/* ── Species detail ──────────────────────────────────────────── */}
       {selectedPoint && !detailDismissed && (
-        <FishDetail point={selectedPoint} onClose={() => setSelectedPoint(null)} />
+        <Suspense fallback={null}>
+          <FishDetail point={selectedPoint} onClose={() => setSelectedPoint(null)} />
+        </Suspense>
       )}
 
       {/* ── Route detail ────────────────────────────────────────────── */}
       {migration.selectedRoute && (
-        <RouteDetail
-          route={migration.selectedRoute}
-          onClose={() => migration.setSelectedRouteId(null)}
-        />
+        <Suspense fallback={null}>
+          <RouteDetail
+            route={migration.selectedRoute}
+            onClose={() => migration.setSelectedRouteId(null)}
+          />
+        </Suspense>
       )}
 
       {/* ── List panel ──────────────────────────────────────────────── */}
       {listPanel && (
-        <ListPanel
-          title={listPanel.title}
-          items={listPanel.items}
-          onClose={() => {
-            setListPanel(null);
-            migration.setSelectedRouteId(null);
-          }}
-          onItemClick={handleListItemClick}
-        />
+        <Suspense fallback={null}>
+          <ListPanel
+            title={listPanel.title}
+            items={listPanel.items}
+            onClose={() => {
+              setListPanel(null);
+              migration.setSelectedRouteId(null);
+            }}
+            onItemClick={handleListItemClick}
+          />
+        </Suspense>
       )}
 
       {/* ── Zoom controls ───────────────────────────────────────────── */}

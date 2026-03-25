@@ -1,14 +1,5 @@
 import type { GlobeTheme, PointItem } from '@openglobes/core';
 
-// Brighter rarity colors for bioluminescence mode — higher saturation/lightness
-const RARITY_COLORS: Record<number, string> = {
-  0: '#5cd4ff', // Common — bright cyan
-  1: '#6eeab8', // Uncommon — vivid mint
-  2: '#ffda5c', // Rare — bright gold
-  3: '#ff5c8a', // Legendary — hot pink
-  4: '#c9a0e8', // Mythic — lavender glow
-};
-
 // Larger point sizes — 1.3x the fish theme; deep-sea fish (rarity >= 2) get extra size
 const RARITY_SIZES: Record<number, number> = {
   0: 0.156,  // 0.12 * 1.3
@@ -38,18 +29,9 @@ export const bioluminescenceTheme: GlobeTheme = {
     shininess: 8,
   },
 
-  pointColor: (item: PointItem) => {
-    if ((item as Record<string, unknown>)._isCluster) {
-      const count = (item as Record<string, unknown>)._count as number;
-      if (count > 2000) return '#ff5c8a';
-      if (count > 500) return '#ffda5c';
-      if (count > 100) return '#6eeab8';
-      if (count > 30) return '#5cd4ff';
-      if (count > 5) return '#48bfe6';
-      return '#8a9ab0';
-    }
-    return RARITY_COLORS[item.rarity as number] ?? '#5cd4ff';
-  },
+  // Points are invisible — sprite layers handle all visual rendering.
+  // Core Globe still needs points for click hit-testing (raycasting).
+  pointColor: (_item: PointItem) => 'rgba(0,0,0,0)',
   pointSize: (item: PointItem) => {
     if ((item as Record<string, unknown>)._isCluster) {
       const count = (item as Record<string, unknown>)._count as number;

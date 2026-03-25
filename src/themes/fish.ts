@@ -1,14 +1,5 @@
 import type { GlobeTheme, PointItem } from '@openglobes/core';
 
-// Design system rarity colors
-const RARITY_COLORS: Record<number, string> = {
-  0: '#48bfe6', // Common — cyan
-  1: '#56d6a0', // Uncommon — teal-green
-  2: '#f9c74f', // Rare — gold
-  3: '#ef476f', // Legendary — crimson-pink
-  4: '#b185db', // Mythic — purple
-};
-
 const RARITY_SIZES: Record<number, number> = {
   0: 0.12,
   1: 0.16,
@@ -33,19 +24,9 @@ export const fishTheme: GlobeTheme = {
     shininess: 15,
   },
 
-  pointColor: (item: PointItem) => {
-    if ((item as Record<string, unknown>)._isCluster) {
-      const count = (item as Record<string, unknown>)._count as number;
-      // 6-tier gradient matching new cluster caps
-      if (count > 2000) return '#ef476f';   // red — large
-      if (count > 500) return '#f9c74f';    // gold
-      if (count > 100) return '#56d6a0';    // green
-      if (count > 30) return '#4cc9f0';     // cyan
-      if (count > 5) return '#48bfe6';      // blue
-      return '#7a8ba0';                      // gray — tiny
-    }
-    return RARITY_COLORS[item.rarity as number] ?? '#48bfe6';
-  },
+  // Points are invisible — sprite layers handle all visual rendering.
+  // Core Globe still needs points for click hit-testing (raycasting).
+  pointColor: (_item: PointItem) => 'rgba(0,0,0,0)',
   pointSize: (item: PointItem) => {
     if ((item as Record<string, unknown>)._isCluster) {
       const count = (item as Record<string, unknown>)._count as number;

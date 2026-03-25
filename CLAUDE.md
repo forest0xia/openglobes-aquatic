@@ -35,10 +35,13 @@ data/ is a SYMLINK to ../openglobes-etl/output/aquatic — do NOT copy data into
 If the symlink is missing: `ln -s ../openglobes-etl/output/aquatic data`
 
 Files:
-- data/tiles/z{0-7}/{x}_{y}.json — spatial tiles (clusters at z0-3, points at z4-7)
-- data/species/{id}.json — per-species detail files (~4,677 files)
+- data/tiles/z{0-7}/{x}_{y}.json — spatial tiles (clusters at z0-5, points at z6)
+- data/species/{id}.json — per-species detail files (~172K files)
+- data/sprites/sp-{name}.png — 179 photorealistic species PNG sprites
+- data/sprites/manifest.json — sprite registry (body type, body group, scientific name)
 - data/index.json — master index with filter definitions
-- data/search.json — compact species list for Fuse.js search
+- data/search.json — compact species list for search
+- data/migration_routes.json — 30 migration route corridors
 
 ## Tech stack
 - Astro 5 with React integration (@astrojs/react)
@@ -72,7 +75,7 @@ src/
     FishGlobe.tsx            — layout-only (~675 lines), delegates state to hooks
     FishDetail.tsx           — species detail panel (images, metadata, size comparison)
     RouteDetail.tsx          — migration route detail panel (type badge, description, waypoints)
-    SearchBar.tsx            — Fuse.js search over /data/search.json
+    SearchBar.tsx            — search over /data/search.json (lazy-loaded on focus)
     ListPanel.tsx            — generic scrollable list (used for cluster species)
     ZoomControls.tsx         — +/- zoom buttons
     DiscoverButton.tsx       — "Discover" random rare fish
@@ -92,8 +95,12 @@ src/
     index.tsx                — ThemeProvider + ThemeContext
     fish.ts                  — default light theme
     bioluminescence.ts       — night mode theme
+  sprites/
+    SpriteLoader.ts          — PNG texture loader with concurrency-limited queue (max 8)
+    SpritePointLayer.ts      — unified sprite renderer for points + clusters, camera-aware pool
   utils/
     flyTo.ts                 — camera fly-to animation
+    loadProgress.ts          — global loading progress tracker (scene, tiles, sprites)
   styles/
     global.css               — Tailwind + custom CSS vars (og-glass, og-chip, etc.)
 ```

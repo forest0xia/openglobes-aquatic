@@ -23,15 +23,18 @@ export default function SearchBar({ totalSpecies = 4677, onSelect }: SearchBarPr
   const inputRef = useRef<HTMLInputElement>(null);
   const indexRef = useRef<SearchEntry[]>([]);
 
-  // Load search index once on mount
-  useEffect(() => {
+  // Load search index lazily on first focus (not on mount)
+  const loadedOnceRef = useRef(false);
+  const loadIndex = useCallback(() => {
+    if (loadedOnceRef.current) return;
+    loadedOnceRef.current = true;
     fetch('/data/search.json')
       .then((r) => r.json())
       .then((data: SearchEntry[]) => {
         indexRef.current = data;
         setLoaded(true);
       })
-      .catch(() => {});
+      .catch(() => { loadedOnceRef.current = false; });
   }, []);
 
   const doSearch = useCallback((q: string) => {
@@ -147,6 +150,7 @@ export default function SearchBar({ totalSpecies = 4677, onSelect }: SearchBarPr
           value={query}
           onChange={handleChange}
           onKeyDown={handleKeyDown}
+          onFocus={loadIndex}
           placeholder={loaded
             ? `Search ${totalSpecies.toLocaleString()} species...`
             : 'Loading search...'

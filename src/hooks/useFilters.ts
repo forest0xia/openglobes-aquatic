@@ -1,6 +1,7 @@
 import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { useSpatialIndex } from '@openglobes/core';
 import type { PointItem } from '@openglobes/core';
+import { addStep, completeStep } from '../utils/loadProgress';
 
 export function useFilters(
   setUpdateCamera: (fn: (distance: number, bounds: { north: number; south: number; east: number; west: number }) => void) => void,
@@ -21,6 +22,18 @@ export function useFilters(
   useEffect(() => {
     setUpdateCamera(spatial.updateCamera);
   }, [spatial.updateCamera, setUpdateCamera]);
+
+  // Track first tile batch for loading progress
+  const tilesStepAdded = useRef(false);
+  useEffect(() => {
+    if (!tilesStepAdded.current) {
+      addStep('tiles', 3, 'Fetching species tiles');
+      tilesStepAdded.current = true;
+    }
+    if (spatial.points.length > 0 || spatial.clusters.length > 0) {
+      completeStep('tiles');
+    }
+  }, [spatial.points, spatial.clusters]);
 
   const handleFilterChange = useCallback((key: string, value: unknown) => {
     setFilterValues((prev) => ({ ...prev, [key]: value }));

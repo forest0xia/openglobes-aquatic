@@ -4,8 +4,11 @@ import { ThemeContext } from '../themes';
 import { GeoLabelsManager } from '../components/GeoLabels';
 import { GEO_LABELS } from '../data/geoLabels';
 import { SpritePointLayer } from '../sprites/SpritePointLayer';
-import { ClusterSwarmLayer } from '../sprites/ClusterSwarmLayer';
 import { flyTo } from '../utils/flyTo';
+import { addStep, completeStep } from '../utils/loadProgress';
+
+// Register the scene-ready loading step once at module level
+addStep('scene', 3, 'Initializing 3D scene');
 
 export function useGlobeControls() {
   const { theme, setThemeId } = useContext(ThemeContext);
@@ -25,36 +28,37 @@ export function useGlobeControls() {
   const sceneRefsRef = useRef<GlobeSceneRefs | null>(null);
   const labelsManagerRef = useRef<GeoLabelsManager | null>(null);
 
-  // Sprite layers
+  // Sprite layer (handles both individual points and clusters)
   const spritePointLayerRef = useRef<SpritePointLayer | null>(null);
-  const clusterSwarmLayerRef = useRef<ClusterSwarmLayer | null>(null);
 
   const handleSceneReady = useCallback((refs: GlobeSceneRefs) => {
     sceneRefsRef.current = refs;
+    // Disable auto-rotation — globe stays still until user interacts
+    refs.controls.autoRotate = false;
     labelsManagerRef.current = new GeoLabelsManager(refs.scene, refs.getCoords, GEO_LABELS);
     spritePointLayerRef.current = new SpritePointLayer(refs.scene, refs.getCoords);
-    clusterSwarmLayerRef.current = new ClusterSwarmLayer(refs.scene, refs.getCoords);
+    completeStep('scene');
   }, []);
 
   const frameCount = useRef(0);
   const handleFrame = useCallback((dt: number) => {
     frameCount.current++;
     if (sceneRefsRef.current) {
-      // Sprite animation + culling every frame
-      spritePointLayerRef.current?.update(sceneRefsRef.current.camera, dt);
-      clusterSwarmLayerRef.current?.update(sceneRefsRef.current.camera);
+      const cam = sceneRefsRef.current.camera;
+      // Sprite animation + back-face culling every frame (no pool reassignment)
+      spritePointLayerRef.current?.update(cam, dt);
 
       // Label culling every 10 frames
       if (frameCount.current % 10 === 0) {
-        labelsManagerRef.current?.update(sceneRefsRef.current.camera);
+        labelsManagerRef.current?.update(cam);
       }
     }
   }, []);
 
-  // Sync sprite layers when display points change
+  // Sync sprite layer when display points change (data-driven only, not on rotation)
   const syncSpriteLayers = useCallback((displayPoints: PointItem[]) => {
-    spritePointLayerRef.current?.syncPoints(displayPoints);
-    clusterSwarmLayerRef.current?.syncClusters(displayPoints);
+    const cam = sceneRefsRef.current?.camera;
+    if (cam) spritePointLayerRef.current?.syncPoints(displayPoints, cam);
   }, []);
 
   // Clean up on unmount
@@ -64,8 +68,6 @@ export function useGlobeControls() {
       labelsManagerRef.current = null;
       spritePointLayerRef.current?.dispose();
       spritePointLayerRef.current = null;
-      clusterSwarmLayerRef.current?.dispose();
-      clusterSwarmLayerRef.current = null;
     };
   }, []);
 
@@ -112,19 +114,26 @@ export function useGlobeControls() {
     const prev = lastCamRef.current;
     const moved =
       prev.dist === 0 ||
-      Math.abs(distance - prev.dist) > 0.5 ||
-      Math.abs(centerLat - prev.lat) > 0.3 ||
-      Math.abs(centerLng - prev.lng) > 0.3;
+      Math.abs(distance - prev.dist) > 1.0 ||
+      Math.abs(centerLat - prev.lat) > 1.0 ||
+      Math.abs(centerLng - prev.lng) > 1.0;
 
     if (moved) {
       lastCamRef.current = { dist: distance, lat: centerLat, lng: centerLng };
       updateCameraRef.current?.(distance, bounds);
+      // Clear any pending trailing update — the immediate call covers it
+      if (throttleRef.current) clearTimeout(throttleRef.current);
+      throttleRef.current = null;
+    } else {
+      // Below threshold — schedule a trailing update so we catch the final
+      // resting position after a smooth pan/zoom ends
+      if (throttleRef.current) clearTimeout(throttleRef.current);
+      throttleRef.current = setTimeout(() => {
+        lastCamRef.current = { dist: distance, lat: centerLat, lng: centerLng };
+        updateCameraRef.current?.(distance, bounds);
+        throttleRef.current = null;
+      }, 250);
     }
-
-    if (throttleRef.current) clearTimeout(throttleRef.current);
-    throttleRef.current = setTimeout(() => {
-      updateCameraRef.current?.(distance, bounds);
-    }, 250);
   }, []);
 
   const handleFlyTo = useCallback((lat: number, lng: number) => {
