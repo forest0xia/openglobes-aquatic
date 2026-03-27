@@ -50,7 +50,8 @@ export class GlobeRenderer {
 
   private frameId = 0;
   private frameCount = 0;
-  private clock = new THREE.Clock();
+  private lastTime = 0;
+  private elapsedTime = 0;
   private onFrameCallbacks: ((dt: number) => void)[] = [];
   private container: HTMLElement | null = null;
 
@@ -239,7 +240,10 @@ export class GlobeRenderer {
 
   private animate = (): void => {
     this.frameId = requestAnimationFrame(this.animate);
-    const dt = Math.min(this.clock.getDelta(), 0.1); // cap dt
+    const now = performance.now() / 1000;
+    const dt = this.lastTime > 0 ? Math.min(now - this.lastTime, 0.1) : 0.016;
+    this.lastTime = now;
+    this.elapsedTime += dt;
 
     // Exponential smoothing (solar-style split damping)
     const lfRot = 1 - Math.pow(0.0001, dt);  // rotation: near-instant
@@ -273,7 +277,7 @@ export class GlobeRenderer {
     this.atmo?.update(this.camera);
 
     // Update species (GPU uniforms only)
-    this.speciesLayer.update(this.clock.elapsedTime, this.camera);
+    this.speciesLayer.update(this.elapsedTime, this.camera);
 
     // Update trails
     this.trailLayer.update(dt);

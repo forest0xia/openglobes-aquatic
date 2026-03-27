@@ -84,43 +84,41 @@ export function useGlobe() {
     'island',
   ]);
 
-  // Create renderer once (lazy init)
-  if (!rendererRef.current) {
-    rendererRef.current = new GlobeRenderer();
-  }
-
   // -------------------------------------------------------------------------
-  // containerRef — mount the renderer into the DOM element
+  // containerRef — create renderer + mount into the DOM element
   // -------------------------------------------------------------------------
 
   const containerRef = useCallback(
     (el: HTMLDivElement | null) => {
-      if (el && rendererRef.current) {
-        rendererRef.current.mount(el);
-
-        // Apply initial theme
-        rendererRef.current.setTheme(toGlobeThemeConfig(theme.globeTheme));
-
-        // Geo labels
-        labelsManagerRef.current = new GeoLabelsManager(
-          rendererRef.current['scene'],
-          (lat: number, lng: number, alt?: number) =>
-            rendererRef.current!.getCoords(lat, lng, alt),
-          GEO_LABELS,
-        );
-
-        // Per-frame label update (backface culling)
-        rendererRef.current.onFrame(() => {
-          if (labelsManagerRef.current) {
-            labelsManagerRef.current.update(rendererRef.current!.getCamera());
-          }
-        });
-
-        setSceneReady(true);
-        completeStep('scene');
+      if (!el) return;
+      // Create renderer lazily on first mount (avoids StrictMode double-create)
+      if (!rendererRef.current) {
+        rendererRef.current = new GlobeRenderer();
       }
+      rendererRef.current.mount(el);
+
+      // Apply initial theme
+      rendererRef.current.setTheme(toGlobeThemeConfig(theme.globeTheme));
+
+      // Geo labels
+      labelsManagerRef.current = new GeoLabelsManager(
+        rendererRef.current['scene'],
+        (lat: number, lng: number, alt?: number) =>
+          rendererRef.current!.getCoords(lat, lng, alt),
+        GEO_LABELS,
+      );
+
+      // Per-frame label update (backface culling)
+      rendererRef.current.onFrame(() => {
+        if (labelsManagerRef.current) {
+          labelsManagerRef.current.update(rendererRef.current!.getCamera());
+        }
+      });
+
+      setSceneReady(true);
+      completeStep('scene');
     },
-    [], // mount once — theme captured from closure at mount time
+    [],
   );
 
   // -------------------------------------------------------------------------
