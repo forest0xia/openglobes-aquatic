@@ -32,29 +32,8 @@ const TIER_MULT: Record<string, number> = {
 /** Sprite pixel size to world-unit conversion factor. */
 const PX_TO_WORLD = 60;
 
-/** Reliability ranking — lower is better. */
-const RELIABILITY_RANK: Record<string, number> = {
-  high: 0,
-  medium: 1,
-  seasonal: 2,
-};
-
-/** Altitude offset so sprites float just above the globe surface. */
-const SPRITE_ALT = 0.005;
-
-/**
- * Pick the best viewing spot for a species.
- * Sorts by reliability (high > medium > seasonal) and returns the first.
- */
-function bestSpot(spots: ViewingSpot[]): ViewingSpot | null {
-  if (spots.length === 0) return null;
-  if (spots.length === 1) return spots[0];
-  return [...spots].sort(
-    (a, b) =>
-      (RELIABILITY_RANK[a.reliability] ?? 2) -
-      (RELIABILITY_RANK[b.reliability] ?? 2),
-  )[0];
-}
+/** Altitude offset so sprites float above the globe surface (avoids z-fighting). */
+const SPRITE_ALT = 0.02;
 
 export class SpeciesLayer {
   private mesh: THREE.InstancedMesh | null = null;
@@ -93,7 +72,8 @@ export class SpeciesLayer {
     // Dispose previous mesh if rebuilding
     this.dispose();
 
-    // --- Filter to species that have a usable spot + manifest entry ----------
+    // --- Expand ALL viewing spots — one instance per spot ----------------------
+    // With InstancedMesh, 700+ instances cost the same as 200 (single draw call).
     type Resolved = {
       sp: Species;
       spot: ViewingSpot;
@@ -102,15 +82,13 @@ export class SpeciesLayer {
 
     const resolved: Resolved[] = [];
     for (const sp of species) {
-      const spot = bestSpot(sp.viewingSpots);
-      if (!spot) continue;
-
-      // Sprite name: strip ".png" from the sprite field (e.g. "sp-blue_whale.png" → "sp-blue_whale")
       const spriteName = sp.sprite.replace('.png', '');
       const rect = manifest.sprites[spriteName];
       if (!rect) continue;
 
-      resolved.push({ sp, spot, rect });
+      for (const spot of sp.viewingSpots) {
+        resolved.push({ sp, spot, rect });
+      }
     }
 
     const count = resolved.length;
@@ -200,14 +178,14 @@ export class SpeciesLayer {
       },
       transparent: true,
       depthWrite: false,
+      depthTest: false, // always render on top of globe surface
       side: THREE.DoubleSide,
     });
 
     // --- InstancedMesh -------------------------------------------------------
-    // We use a dummy identity matrix for each instance because the vertex
-    // shader positions sprites via instancePos + billboard offset.
     this.mesh = new THREE.InstancedMesh(geometry, this.material, count);
     this.mesh.frustumCulled = false; // shader handles back-face culling
+    this.mesh.renderOrder = 10; // render after globe + atmosphere
 
     // Set all instance matrices to identity (positioning is in shader)
     const identity = new THREE.Matrix4();
