@@ -17,15 +17,16 @@ export interface MigrationRoute {
 }
 
 // Color by migration type
+// Soft luminous colors — translucent for delicate trail appearance
 const TYPE_COLORS: Record<string, string[]> = {
-  anadromous:    ['rgba(239, 71, 111, 0.7)', 'rgba(249, 199, 79, 0.5)'],  // salmon-like
-  catadromous:   ['rgba(177, 133, 219, 0.7)', 'rgba(76, 201, 240, 0.5)'],  // eel-like
-  oceanodromous: ['rgba(76, 201, 240, 0.7)', 'rgba(86, 214, 160, 0.5)'],   // open ocean
-  amphidromous:  ['rgba(86, 214, 160, 0.7)', 'rgba(249, 199, 79, 0.5)'],   // freshwater↔sea
-  potamodromous: ['rgba(249, 199, 79, 0.7)', 'rgba(239, 71, 111, 0.5)'],   // river-only
+  anadromous:    ['rgba(239, 71, 111, 0.35)', 'rgba(249, 199, 79, 0.2)'],
+  catadromous:   ['rgba(177, 133, 219, 0.35)', 'rgba(76, 201, 240, 0.2)'],
+  oceanodromous: ['rgba(76, 201, 240, 0.35)', 'rgba(86, 214, 160, 0.2)'],
+  amphidromous:  ['rgba(86, 214, 160, 0.35)', 'rgba(249, 199, 79, 0.2)'],
+  potamodromous: ['rgba(249, 199, 79, 0.35)', 'rgba(239, 71, 111, 0.2)'],
 };
 
-const DEFAULT_COLOR = ['rgba(76, 201, 240, 0.6)', 'rgba(76, 201, 240, 0.3)'];
+const DEFAULT_COLOR = ['rgba(76, 201, 240, 0.3)', 'rgba(76, 201, 240, 0.15)'];
 
 let routesData: MigrationRoute[] = [];
 let trailsData: TrailDatum[] = [];
@@ -42,10 +43,10 @@ export async function loadMigrationRoutes(): Promise<void> {
       id: `mig-${i}`,
       label: r.name,
       color: TYPE_COLORS[r.type] ?? DEFAULT_COLOR,
-      width: 3.5,
-      dashLength: 0.15,
-      dashGap: 0.08,
-      altitude: 0.006,
+      width: 0.8,           // thin, delicate line
+      dashLength: 0.08,     // shorter dashes for flowing feel
+      dashGap: 0.04,
+      altitude: 0.004,      // closer to surface
       speed: r.type === 'catadromous' ? 7000 : r.type === 'anadromous' ? 5000 : 4000,
       waypoints: r.waypoints.map(w => ({ lat: w.lat, lng: w.lng })),
     }));

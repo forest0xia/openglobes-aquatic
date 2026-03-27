@@ -35,11 +35,10 @@ data/ is a SYMLINK to ../openglobes-etl/output/aquatic — do NOT copy data into
 If the symlink is missing: `ln -s ../openglobes-etl/output/aquatic data`
 
 Files:
-- data/tiles/z{0-7}/{x}_{y}.json — spatial tiles (clusters at z0-5, points at z6)
-- data/species/{id}.json — per-species detail files (~172K files)
+- data/final.json — 200 curated species with viewing spots, display config, bilingual names (~270KB)
+- data/hotspots.json — 25 marine hotspots (~6KB)
 - data/sprites/sp-{name}.png — 179 photorealistic species PNG sprites
 - data/sprites/manifest.json — sprite registry (body type, body group, scientific name)
-- data/index.json — master index with filter definitions
 - data/search.json — compact species list for search
 - data/migration_routes.json — 30 migration route corridors
 

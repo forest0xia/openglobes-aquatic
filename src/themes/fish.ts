@@ -1,13 +1,5 @@
 import type { GlobeTheme, PointItem } from '@openglobes/core';
 
-const RARITY_SIZES: Record<number, number> = {
-  0: 0.12,
-  1: 0.16,
-  2: 0.22,
-  3: 0.3,
-  4: 0.35,
-};
-
 export const fishTheme: GlobeTheme = {
   id: 'fish',
   name: 'AquaticGlobe',
@@ -26,16 +18,9 @@ export const fishTheme: GlobeTheme = {
 
   // Points are invisible — sprite layers handle all visual rendering.
   // Core Globe still needs points for click hit-testing (raycasting).
+  // No core Globe points — sprite layer handles all rendering
   pointColor: (_item: PointItem) => 'rgba(0,0,0,0)',
-  pointSize: (item: PointItem) => {
-    if ((item as Record<string, unknown>)._isCluster) {
-      const count = (item as Record<string, unknown>)._count as number;
-      // Proportional: 1 species = 0.15, 100 = 0.8, 5000 = 2.0
-      if (count <= 1) return 0.15;
-      return Math.min(2.0, 0.15 + Math.sqrt(count) * 0.025);
-    }
-    return RARITY_SIZES[item.rarity as number] ?? 0.12;
-  },
+  pointSize: (_item: PointItem) => 0.1,
   clusterColor: (count: number) => {
     if (count > 500) return '#ef476f';
     if (count > 100) return '#f9c74f';

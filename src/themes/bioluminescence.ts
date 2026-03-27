@@ -1,14 +1,5 @@
 import type { GlobeTheme, PointItem } from '@openglobes/core';
 
-// Larger point sizes — 1.3x the fish theme; deep-sea fish (rarity >= 2) get extra size
-const RARITY_SIZES: Record<number, number> = {
-  0: 0.156,  // 0.12 * 1.3
-  1: 0.208,  // 0.16 * 1.3
-  2: 0.33,   // 0.22 * 1.5 — deep-sea bonus
-  3: 0.45,   // 0.30 * 1.5 — deep-sea bonus
-  4: 0.525,  // 0.35 * 1.5 — deep-sea bonus
-};
-
 // Solid black 1x1 pixel PNG as data URI
 const BLACK_TEXTURE =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFHDZAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
@@ -32,14 +23,7 @@ export const bioluminescenceTheme: GlobeTheme = {
   // Points are invisible — sprite layers handle all visual rendering.
   // Core Globe still needs points for click hit-testing (raycasting).
   pointColor: (_item: PointItem) => 'rgba(0,0,0,0)',
-  pointSize: (item: PointItem) => {
-    if ((item as Record<string, unknown>)._isCluster) {
-      const count = (item as Record<string, unknown>)._count as number;
-      if (count <= 1) return 0.2;
-      return Math.min(2.5, 0.2 + Math.sqrt(count) * 0.03);
-    }
-    return RARITY_SIZES[item.rarity as number] ?? 0.156;
-  },
+  pointSize: (_item: PointItem) => 0.1,
   clusterColor: (count: number) => {
     if (count > 500) return '#ff5c8a';
     if (count > 100) return '#ffda5c';

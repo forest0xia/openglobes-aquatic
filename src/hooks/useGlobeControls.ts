@@ -1,13 +1,15 @@
 import { useState, useCallback, useRef, useEffect, useMemo, useContext } from 'react';
-import type { PointItem, GlobeSceneRefs } from '@openglobes/core';
+import type { GlobeSceneRefs } from '@openglobes/core';
 import { ThemeContext } from '../themes';
 import { GeoLabelsManager } from '../components/GeoLabels';
 import { GEO_LABELS } from '../data/geoLabels';
 import { SpritePointLayer } from '../sprites/SpritePointLayer';
+import { MigrationSpriteLayer, setSpeciesSpriteMap } from '../sprites/MigrationSpriteLayer';
+import type { Species } from './useSpeciesData';
+import type { MigrationRoute } from '../data/migrations';
 import { flyTo } from '../utils/flyTo';
 import { addStep, completeStep } from '../utils/loadProgress';
 
-// Register the scene-ready loading step once at module level
 addStep('scene', 3, 'Initializing 3D scene');
 
 export function useGlobeControls() {
@@ -24,54 +26,86 @@ export function useGlobeControls() {
     hd: { label: 'HD Satellite', texture: '/textures/earth-blue-marble-8k.jpg' },
   };
 
-  // Scene refs
   const sceneRefsRef = useRef<GlobeSceneRefs | null>(null);
   const labelsManagerRef = useRef<GeoLabelsManager | null>(null);
-
-  // Sprite layer (handles both individual points and clusters)
-  const spritePointLayerRef = useRef<SpritePointLayer | null>(null);
+  const spriteLayerRef = useRef<SpritePointLayer | null>(null);
+  const migrationLayerRef = useRef<MigrationSpriteLayer | null>(null);
+  const [sceneReady, setSceneReady] = useState(false);
 
   const handleSceneReady = useCallback((refs: GlobeSceneRefs) => {
     sceneRefsRef.current = refs;
-    // Disable auto-rotation — globe stays still until user interacts
     refs.controls.autoRotate = false;
+    refs.controls.enableDamping = true;
+    refs.controls.dampingFactor = 0.1; // snappier response, less per-frame work
+
+    // Clear unused three-globe data layers to reduce per-frame overhead.
+    // Keep the animation running (needed for globe texture/intro tween).
+    const globe = refs.globe as any;
+    if (typeof globe.pointsData === 'function') globe.pointsData([]);
+    if (typeof globe.arcsData === 'function') globe.arcsData([]);
+    if (typeof globe.polygonsData === 'function') globe.polygonsData([]);
+    if (typeof globe.hexPolygonsData === 'function') globe.hexPolygonsData([]);
+    if (typeof globe.labelsData === 'function') globe.labelsData([]);
+    if (typeof globe.ringsData === 'function') globe.ringsData([]);
+    if (typeof globe.pathsData === 'function') globe.pathsData([]);
+    if (typeof globe.tilesData === 'function') globe.tilesData([]);
+    if (typeof globe.customLayerData === 'function') globe.customLayerData([]);
+
+    // Pause three-globe's internal animation AFTER the intro completes (2s)
+    setTimeout(() => {
+      if (typeof globe.pauseAnimation === 'function') {
+        globe.pauseAnimation();
+      }
+    }, 2500);
+
     labelsManagerRef.current = new GeoLabelsManager(refs.scene, refs.getCoords, GEO_LABELS);
-    spritePointLayerRef.current = new SpritePointLayer(refs.scene, refs.getCoords);
+    spriteLayerRef.current = new SpritePointLayer(refs.scene, refs.getCoords);
+    migrationLayerRef.current = new MigrationSpriteLayer(refs.scene, refs.getCoords);
+    setSceneReady(true);
     completeStep('scene');
   }, []);
 
   const frameCount = useRef(0);
   const handleFrame = useCallback((dt: number) => {
-    frameCount.current++;
     if (sceneRefsRef.current) {
       const cam = sceneRefsRef.current.camera;
-      // Sprite animation + back-face culling every frame (no pool reassignment)
-      spritePointLayerRef.current?.update(cam, dt);
+      spriteLayerRef.current?.update(cam, dt);
+      migrationLayerRef.current?.update(cam, dt);
 
-      // Label culling every 10 frames
-      if (frameCount.current % 10 === 0) {
-        labelsManagerRef.current?.update(cam);
+      // Log performance every 300 frames (~5s)
+      frameCount.current++;
+      if (frameCount.current % 300 === 0) {
+        const r = sceneRefsRef.current.renderer;
+        const info = r.info;
+        console.log(`[perf] frame ${frameCount.current}: geometries=${info.memory.geometries}, textures=${info.memory.textures}, calls=${info.render.calls}, triangles=${info.render.triangles}`);
+        info.reset();
       }
     }
   }, []);
 
-  // Sync sprite layer when display points change (data-driven only, not on rotation)
-  const syncSpriteLayers = useCallback((displayPoints: PointItem[]) => {
-    const cam = sceneRefsRef.current?.camera;
-    if (cam) spritePointLayerRef.current?.syncPoints(displayPoints, cam);
+  // Build species sprites (called once when data + scene ready)
+  const buildSprites = useCallback((species: Species[]) => {
+    // Set the species→sprite map for migration routes
+    setSpeciesSpriteMap(species);
+    spriteLayerRef.current?.build(species);
   }, []);
 
-  // Clean up on unmount
+  // Build migration route sprites (called once when routes load + scene ready)
+  const buildMigrationSprites = useCallback((routes: MigrationRoute[]) => {
+    migrationLayerRef.current?.build(routes);
+  }, []);
+
   useEffect(() => {
     return () => {
       labelsManagerRef.current?.dispose();
       labelsManagerRef.current = null;
-      spritePointLayerRef.current?.dispose();
-      spritePointLayerRef.current = null;
+      spriteLayerRef.current?.dispose();
+      spriteLayerRef.current = null;
+      migrationLayerRef.current?.dispose();
+      migrationLayerRef.current = null;
     };
   }, []);
 
-  // Sync label visibility
   useEffect(() => {
     if (!labelsManagerRef.current) return;
     labelsManagerRef.current.setVisible(labelTypes.length > 0);
@@ -80,91 +114,21 @@ export function useGlobeControls() {
     }
   }, [labelTypes]);
 
-  // Camera throttle for spatial index
-  const updateCameraRef = useRef<((distance: number, bounds: { north: number; south: number; east: number; west: number }) => void) | null>(null);
-  const throttleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const lastCamRef = useRef({ dist: 0, lat: 0, lng: 0 });
-
-  const setUpdateCamera = useCallback(
-    (fn: (distance: number, bounds: { north: number; south: number; east: number; west: number }) => void) => {
-      updateCameraRef.current = fn;
-    },
-    [],
-  );
-
-  const handleCameraChange = useCallback((distance: number) => {
-    const cam = sceneRefsRef.current?.camera;
-    let centerLat = 0;
-    let centerLng = 0;
-    if (cam) {
-      const { x, y, z } = cam.position;
-      const r = Math.sqrt(x * x + y * y + z * z);
-      centerLat = Math.asin(y / r) * (180 / Math.PI);
-      centerLng = Math.atan2(x, z) * (180 / Math.PI);
-    }
-
-    const halfArc = Math.asin(Math.min(1, 100 / distance)) * (180 / Math.PI);
-    const bounds = {
-      north: Math.min(85, centerLat + halfArc),
-      south: Math.max(-85, centerLat - halfArc),
-      east: Math.min(180, centerLng + halfArc),
-      west: Math.max(-180, centerLng - halfArc),
-    };
-
-    const prev = lastCamRef.current;
-    const moved =
-      prev.dist === 0 ||
-      Math.abs(distance - prev.dist) > 1.0 ||
-      Math.abs(centerLat - prev.lat) > 1.0 ||
-      Math.abs(centerLng - prev.lng) > 1.0;
-
-    if (moved) {
-      lastCamRef.current = { dist: distance, lat: centerLat, lng: centerLng };
-      updateCameraRef.current?.(distance, bounds);
-      // Clear any pending trailing update — the immediate call covers it
-      if (throttleRef.current) clearTimeout(throttleRef.current);
-      throttleRef.current = null;
-    } else {
-      // Below threshold — schedule a trailing update so we catch the final
-      // resting position after a smooth pan/zoom ends
-      if (throttleRef.current) clearTimeout(throttleRef.current);
-      throttleRef.current = setTimeout(() => {
-        lastCamRef.current = { dist: distance, lat: centerLat, lng: centerLng };
-        updateCameraRef.current?.(distance, bounds);
-        throttleRef.current = null;
-      }, 250);
-    }
-  }, []);
-
   const handleFlyTo = useCallback((lat: number, lng: number) => {
     if (sceneRefsRef.current) flyTo(sceneRefsRef.current, lat, lng);
   }, []);
 
-  // Theme for Globe component (strip non-core filters, apply skin)
   const coreTheme = useMemo(() => {
-    const coreFilters = theme.globeTheme.filters.filter(
-      (f) => f.key !== 'rarity' && f.key !== 'depth',
-    );
     const skinTexture = GLOBE_SKINS[globeSkin]?.texture ?? theme.globeTheme.globeTexture;
-    return { ...theme.globeTheme, filters: coreFilters, globeTexture: skinTexture };
+    return { ...theme.globeTheme, filters: [], globeTexture: skinTexture };
   }, [theme.globeTheme, globeSkin]);
 
   return {
-    theme,
-    setThemeId,
-    isNightMode,
-    globeSkin,
-    setGlobeSkin,
-    GLOBE_SKINS,
-    labelTypes,
-    setLabelTypes,
-    sceneRefsRef,
-    handleSceneReady,
-    handleFrame,
-    handleCameraChange,
-    handleFlyTo,
-    setUpdateCamera,
-    coreTheme,
-    syncSpriteLayers,
+    theme, setThemeId, isNightMode,
+    globeSkin, setGlobeSkin, GLOBE_SKINS,
+    labelTypes, setLabelTypes,
+    sceneRefsRef, handleSceneReady, handleFrame, handleFlyTo,
+    coreTheme, buildSprites, buildMigrationSprites,
+    spriteLayerRef, sceneReady,
   };
 }
