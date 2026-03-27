@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { PointItem } from '@openglobes/core';
+import type { PointItem } from '../types';
 
 // ---------------------------------------------------------------------------
 // SwimmingFish — animated fish sprites on the 3D globe.

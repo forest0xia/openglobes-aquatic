@@ -1,4 +1,4 @@
-import type { TrailDatum } from '@openglobes/core';
+import type { TrailDatum } from '../types';
 
 const WARM = ['rgba(239, 71, 111, 0.35)', 'rgba(249, 199, 79, 0.2)'];
 const COLD = ['rgba(76, 201, 240, 0.35)', 'rgba(86, 214, 160, 0.2)'];

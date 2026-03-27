@@ -1,4 +1,4 @@
-import type { TrailDatum } from '@openglobes/core';
+import type { TrailDatum } from '../types';
 
 // ---------------------------------------------------------------------------
 // Migration route data — loaded from openglobes-etl/data/raw/fish/migration_routes.json

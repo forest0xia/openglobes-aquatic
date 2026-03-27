@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
-import type { PointItem } from '@openglobes/core';
+import type { PointItem } from '../types';
 
 interface FishNearMeProps {
   points: PointItem[];

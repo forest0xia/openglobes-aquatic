@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, type PointerEvent as ReactPointerEvent } from 'react';
-import type { PointItem } from '@openglobes/core';
+import type { PointItem } from '../types';
 import { SCHOOLING_SPECIES } from '../data/schooling';
 // DepthStrip removed — user found it confusing
 import { SizeComparison } from './SizeComparison';

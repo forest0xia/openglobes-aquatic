@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import type { PointItem } from '@openglobes/core';
+import type { PointItem } from '../types';
 
 interface DiscoverButtonProps {
   points: PointItem[];
