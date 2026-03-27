@@ -229,45 +229,7 @@ export function useGlobe() {
     ) => {
       const renderer = rendererRef.current;
       if (!renderer) return;
-
-      const camera = renderer.getCamera();
-      const controls = renderer.getControls();
-      const duration = options.duration ?? 2000;
-      const targetDist =
-        options.zoomDistance ?? camera.position.length();
-
-      // Target position on globe surface
-      const target = renderer.getCoords(lat, lng, 0);
-      const targetVec = new THREE.Vector3(target.x, target.y, target.z);
-
-      // Camera end position: along the vector from origin through target
-      const camTarget = targetVec
-        .clone()
-        .normalize()
-        .multiplyScalar(targetDist);
-
-      const startCam = camera.position.clone();
-      const startTarget = controls.target.clone();
-      const endTarget = new THREE.Vector3(0, 0, 0);
-
-      controls.autoRotate = false;
-      const startTime = performance.now();
-
-      function animate() {
-        const elapsed = performance.now() - startTime;
-        const t = Math.min(elapsed / duration, 1);
-        // ease-in-out cubic
-        const ease =
-          t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
-
-        camera.position.lerpVectors(startCam, camTarget, ease);
-        controls.target.lerpVectors(startTarget, endTarget, ease);
-        controls.update();
-
-        if (t < 1) requestAnimationFrame(animate);
-      }
-
-      animate();
+      renderer.flyTo(lat, lng, options.zoomDistance, options.duration);
     },
     [],
   );

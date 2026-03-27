@@ -1,22 +1,16 @@
 import * as THREE from 'three';
-import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { createEarthMesh, type EarthMeshOptions } from './EarthMesh';
-import { createAtmosphere } from './AtmosphereShader';
+import { createAtmosphere, type AtmosphereConfig } from './AtmosphereShader';
 import { SpeciesLayer } from './SpeciesLayer';
 import { TrailLayer } from './TrailLayer';
 import { latLngToVec3, GLOBE_RADIUS } from './coordUtils';
 
 // ---------------------------------------------------------------------------
-// GlobeRenderer — scene orchestrator that owns the Three.js scene, camera,
-// renderer, orbit controls, and all visual layers (earth, atmosphere,
-// species sprites, migration trails).
+// GlobeRenderer — single RAF loop, custom spherical camera, ACES tone mapping.
 //
-// Usage:
-//   const globe = new GlobeRenderer();
-//   globe.mount(containerDiv);
-//   globe.setTheme({ globeTexture, atmosphereColor, backgroundColor });
-//   // ... later
-//   globe.dispose();
+// Camera uses exponential smoothing (ported from openglobes-solar):
+//   rotation → near-instant (0.0001 time constant)
+//   zoom/pan → smooth fluid  (0.008 time constant)
 // ---------------------------------------------------------------------------
 
 export interface GlobeThemeConfig {
@@ -24,231 +18,290 @@ export interface GlobeThemeConfig {
   atmosphereColor: string;
   backgroundColor: string;
   terrain?: EarthMeshOptions;
+  atmosphere?: AtmosphereConfig;
 }
 
 export class GlobeRenderer {
   private renderer: THREE.WebGLRenderer;
   private scene: THREE.Scene;
   private camera: THREE.PerspectiveCamera;
-  private controls: OrbitControls;
+
+  // Custom spherical camera state (no OrbitControls)
+  private curAngle = { theta: 0.3, phi: Math.PI / 3 };
+  private tgtAngle = { theta: 0.3, phi: Math.PI / 3 };
+  private curDist = 350;
+  private tgtDist = 350;
+  private curTarget = new THREE.Vector3();
+  private tgtTarget = new THREE.Vector3();
+
+  // Pointer state
+  private isDragging = false;
+  private lastPointer = { x: 0, y: 0 };
+  private pinchDist = 0;
+
+  // Scene objects
   private earth: THREE.Mesh | null = null;
-  private atmosphere: THREE.Mesh | null = null;
+  private atmo: { rim: THREE.Mesh; haze: THREE.Mesh; update: (c: THREE.Camera) => void } | null = null;
+  private ambientLight: THREE.AmbientLight;
+  private fillLight: THREE.PointLight;
+
   readonly speciesLayer: SpeciesLayer;
   readonly trailLayer: TrailLayer;
+
   private frameId = 0;
   private clock = new THREE.Clock();
   private onFrameCallbacks: ((dt: number) => void)[] = [];
+  private container: HTMLElement | null = null;
 
   constructor() {
-    // --- Renderer -----------------------------------------------------------
+    // Renderer — ACES cinematic tone mapping
     this.renderer = new THREE.WebGLRenderer({
       antialias: true,
       alpha: true,
+      powerPreference: 'high-performance',
     });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 1.4;
 
-    // --- Scene --------------------------------------------------------------
+    // Scene
     this.scene = new THREE.Scene();
 
-    // --- Camera -------------------------------------------------------------
+    // Camera
     this.camera = new THREE.PerspectiveCamera(50, 1, 1, 2000);
-    this.camera.position.set(0, 0, 350);
 
-    // --- Orbit controls -----------------------------------------------------
-    this.controls = new OrbitControls(this.camera, this.renderer.domElement);
-    this.controls.enableDamping = false; // no inertia — instant response
-    this.controls.rotateSpeed = 1.0;     // 1:1 mouse-to-globe mapping
-    this.controls.zoomSpeed = 1.2;
-    this.controls.minDistance = 120;
-    this.controls.maxDistance = 500;
-    this.controls.enablePan = false;
-    this.controls.autoRotate = false;
+    // Lighting
+    this.ambientLight = new THREE.AmbientLight(0x405060, 0.8);
+    this.scene.add(this.ambientLight);
 
-    // --- Lighting -----------------------------------------------------------
-    const ambient = new THREE.AmbientLight(0xcccccc, Math.PI);
-    this.scene.add(ambient);
+    const dirLight = new THREE.DirectionalLight(0xffffff, 0.6 * Math.PI);
+    dirLight.position.set(1, 1, 1);
+    this.scene.add(dirLight);
 
-    const directional = new THREE.DirectionalLight(
-      0xffffff,
-      0.6 * Math.PI,
-    );
-    directional.position.set(1, 1, 1);
-    this.scene.add(directional);
+    // Camera fill light — softens shadow side, fades with distance
+    this.fillLight = new THREE.PointLight(0xffffff, 1.5, 0, 0);
+    this.scene.add(this.fillLight);
 
-    // --- Layers -------------------------------------------------------------
+    // Layers
     this.speciesLayer = new SpeciesLayer(this.scene);
     this.trailLayer = new TrailLayer(this.scene);
   }
 
-  // -------------------------------------------------------------------------
-  // mount — attach to DOM and start the render loop
-  // -------------------------------------------------------------------------
+  // ─── Mount ──────────────────────────────────────────────────────────────
 
-  /** Mount into a DOM container. Starts the RAF loop. */
   mount(container: HTMLElement): void {
+    this.container = container;
     container.appendChild(this.renderer.domElement);
-    this.handleResize(); // set initial size from container
+    this.handleResize();
     window.addEventListener('resize', this.handleResize);
-    this.clock.start();
+
+    // Pointer events for custom camera
+    const el = this.renderer.domElement;
+    el.addEventListener('pointerdown', this.onPointerDown);
+    el.addEventListener('pointermove', this.onPointerMove);
+    el.addEventListener('pointerup', this.onPointerUp);
+    el.addEventListener('pointerleave', this.onPointerUp);
+    el.addEventListener('wheel', this.onWheel, { passive: false });
+    el.addEventListener('touchstart', this.onTouchStart, { passive: false });
+    el.addEventListener('touchmove', this.onTouchMove, { passive: false });
+    el.addEventListener('touchend', this.onTouchEnd);
+
     this.animate();
   }
 
-  // -------------------------------------------------------------------------
-  // setTheme — swap earth mesh, atmosphere, background
-  // -------------------------------------------------------------------------
+  // ─── Theme ──────────────────────────────────────────────────────────────
 
-  /** Set the globe theme (texture, atmosphere, background). */
   setTheme(config: GlobeThemeConfig): void {
-    // Remove existing earth mesh
-    if (this.earth) {
-      this.scene.remove(this.earth);
-      this.earth.geometry.dispose();
-      if (this.earth.material instanceof THREE.Material) {
-        this.earth.material.dispose();
-      }
-      this.earth = null;
-    }
+    // Remove old earth + atmosphere
+    if (this.earth) { this.scene.remove(this.earth); this.earth.geometry.dispose(); (this.earth.material as THREE.Material).dispose(); }
+    if (this.atmo) { this.scene.remove(this.atmo.rim); this.scene.remove(this.atmo.haze); }
 
-    // Remove existing atmosphere
-    if (this.atmosphere) {
-      this.scene.remove(this.atmosphere);
-      this.atmosphere.geometry.dispose();
-      if (this.atmosphere.material instanceof THREE.Material) {
-        this.atmosphere.material.dispose();
-      }
-      this.atmosphere = null;
-    }
+    // Background
+    this.scene.background = new THREE.Color(config.backgroundColor);
 
-    // Create new earth mesh
-    const earthOptions: EarthMeshOptions = config.terrain
-      ? config.terrain
-      : { textureUrl: config.globeTexture };
-    this.earth = createEarthMesh(earthOptions);
+    // Earth
+    this.earth = createEarthMesh(config.terrain ?? { textureUrl: config.globeTexture });
     this.scene.add(this.earth);
 
-    // Create new atmosphere
-    this.atmosphere = createAtmosphere(config.atmosphereColor, GLOBE_RADIUS);
-    this.scene.add(this.atmosphere);
-
-    // Background color
-    this.scene.background = new THREE.Color(config.backgroundColor);
+    // Atmosphere (dual-layer)
+    this.atmo = createAtmosphere(
+      config.atmosphere ?? config.atmosphereColor,
+      GLOBE_RADIUS,
+    );
+    this.scene.add(this.atmo.rim);
+    this.scene.add(this.atmo.haze);
   }
 
-  // -------------------------------------------------------------------------
-  // onFrame — register external per-frame callbacks
-  // -------------------------------------------------------------------------
+  // ─── Accessors ──────────────────────────────────────────────────────────
 
-  /** Register a per-frame callback. Returns an unsubscribe function. */
-  onFrame(cb: (dt: number) => void): () => void {
-    this.onFrameCallbacks.push(cb);
-    return () => {
-      const idx = this.onFrameCallbacks.indexOf(cb);
-      if (idx >= 0) this.onFrameCallbacks.splice(idx, 1);
+  getCamera(): THREE.PerspectiveCamera { return this.camera; }
+  getRenderer(): THREE.WebGLRenderer { return this.renderer; }
+
+  /** OrbitControls-compatible target for flyTo (returns the target vector). */
+  getControls(): { target: THREE.Vector3; update: () => void; autoRotate: boolean } {
+    return {
+      target: this.tgtTarget,
+      update: () => {},
+      autoRotate: false,
     };
   }
 
-  // -------------------------------------------------------------------------
-  // Accessors
-  // -------------------------------------------------------------------------
-
-  /** Get the active camera (for hit testing, labels, etc.). */
-  getCamera(): THREE.PerspectiveCamera {
-    return this.camera;
-  }
-
-  /** Get the orbit controls (for external fly-to animations). */
-  getControls(): OrbitControls {
-    return this.controls;
-  }
-
-  /** Get the renderer (for reading canvas size, etc.). */
-  getRenderer(): THREE.WebGLRenderer {
-    return this.renderer;
-  }
-
-  /**
-   * Convert lat/lng to world-space coordinates.
-   * Compatible with GeoLabels and other consumers that expect `{x, y, z}`.
-   */
-  getCoords(
-    lat: number,
-    lng: number,
-    alt?: number,
-  ): { x: number; y: number; z: number } {
+  getCoords(lat: number, lng: number, alt?: number): { x: number; y: number; z: number } {
     const v = latLngToVec3(lat, lng, GLOBE_RADIUS, alt);
     return { x: v.x, y: v.y, z: v.z };
   }
 
-  // -------------------------------------------------------------------------
-  // animate — single RAF loop
-  // -------------------------------------------------------------------------
+  onFrame(cb: (dt: number) => void): () => void {
+    this.onFrameCallbacks.push(cb);
+    return () => { this.onFrameCallbacks = this.onFrameCallbacks.filter(c => c !== cb); };
+  }
+
+  /** Fly camera to look at a lat/lng. */
+  flyTo(lat: number, lng: number, dist?: number, duration = 2000): void {
+    const target = latLngToVec3(lat, lng, GLOBE_RADIUS, 0);
+    const dir = target.clone().normalize();
+
+    // Compute spherical angles for the target direction
+    this.tgtAngle.phi = Math.acos(Math.max(-0.999, Math.min(0.999, dir.y)));
+    this.tgtAngle.theta = Math.atan2(dir.x, dir.z);
+    if (dist !== undefined) this.tgtDist = dist;
+    this.tgtTarget.set(0, 0, 0);
+  }
+
+  // ─── Pointer handling (custom spherical camera) ─────────────────────────
+
+  private onPointerDown = (e: PointerEvent): void => {
+    this.isDragging = true;
+    this.lastPointer.x = e.clientX;
+    this.lastPointer.y = e.clientY;
+  };
+
+  private onPointerMove = (e: PointerEvent): void => {
+    if (!this.isDragging) return;
+    const dx = e.clientX - this.lastPointer.x;
+    const dy = e.clientY - this.lastPointer.y;
+    this.lastPointer.x = e.clientX;
+    this.lastPointer.y = e.clientY;
+
+    this.tgtAngle.theta -= dx * 0.004;
+    this.tgtAngle.phi = Math.max(0.1, Math.min(Math.PI - 0.1,
+      this.tgtAngle.phi + dy * 0.004));
+  };
+
+  private onPointerUp = (): void => {
+    this.isDragging = false;
+  };
+
+  private onWheel = (e: WheelEvent): void => {
+    e.preventDefault();
+    const zoomPct = this.tgtDist < 200 ? 0.001 : 0.0005;
+    this.tgtDist = Math.max(120, Math.min(500,
+      this.tgtDist * (1 + e.deltaY * zoomPct)));
+  };
+
+  // Touch (pinch zoom)
+  private onTouchStart = (e: TouchEvent): void => {
+    if (e.touches.length === 2) {
+      e.preventDefault();
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      this.pinchDist = Math.sqrt(dx * dx + dy * dy);
+    }
+  };
+  private onTouchMove = (e: TouchEvent): void => {
+    if (e.touches.length === 2) {
+      e.preventDefault();
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      const delta = this.pinchDist - dist;
+      this.tgtDist = Math.max(120, Math.min(500, this.tgtDist * (1 + delta * 0.003)));
+      this.pinchDist = dist;
+    }
+  };
+  private onTouchEnd = (): void => { this.pinchDist = 0; };
+
+  // ─── Animation loop ─────────────────────────────────────────────────────
 
   private animate = (): void => {
     this.frameId = requestAnimationFrame(this.animate);
-    const dt = this.clock.getDelta();
+    const dt = Math.min(this.clock.getDelta(), 0.1); // cap dt
 
-    // Update orbit controls (handles damping)
-    this.controls.update();
+    // Exponential smoothing (solar-style split damping)
+    const lfRot = 1 - Math.pow(0.0001, dt);  // rotation: near-instant
+    const lfZoom = 1 - Math.pow(0.008, dt);   // zoom/position: smooth fluid
 
-    // Update visual layers
-    const elapsed = this.clock.elapsedTime;
-    this.speciesLayer.update(elapsed, this.camera);
+    this.curAngle.theta += (this.tgtAngle.theta - this.curAngle.theta) * lfRot;
+    this.curAngle.phi += (this.tgtAngle.phi - this.curAngle.phi) * lfRot;
+    this.curDist += (this.tgtDist - this.curDist) * lfZoom;
+    this.curTarget.lerp(this.tgtTarget, lfZoom);
+
+    // Spherical → Cartesian camera position
+    const sinPhi = Math.sin(this.curAngle.phi);
+    this.camera.position.set(
+      this.curTarget.x + this.curDist * sinPhi * Math.sin(this.curAngle.theta),
+      this.curTarget.y + this.curDist * Math.cos(this.curAngle.phi),
+      this.curTarget.z + this.curDist * sinPhi * Math.cos(this.curAngle.theta),
+    );
+    this.camera.lookAt(this.curTarget);
+
+    // Dynamic near/far
+    this.camera.near = Math.max(this.curDist * 0.01, 0.1);
+    this.camera.far = Math.max(this.curDist * 100, 2000);
+    this.camera.updateProjectionMatrix();
+
+    // Fill light follows camera, intensity fades with distance
+    this.fillLight.position.copy(this.camera.position);
+    const fillIntensity = this.curDist < 200 ? 1.5 : Math.max(0, 1.5 - (this.curDist - 200) * 0.005);
+    this.fillLight.intensity = fillIntensity;
+
+    // Update atmosphere
+    this.atmo?.update(this.camera);
+
+    // Update species (GPU uniforms only)
+    this.speciesLayer.update(this.clock.elapsedTime, this.camera);
+
+    // Update trails
     this.trailLayer.update(dt);
 
-    // External per-frame callbacks
+    // External callbacks
     for (const cb of this.onFrameCallbacks) cb(dt);
 
-    // Render
     this.renderer.render(this.scene, this.camera);
   };
 
-  // -------------------------------------------------------------------------
-  // handleResize — keep renderer + camera in sync with container
-  // -------------------------------------------------------------------------
+  // ─── Resize ─────────────────────────────────────────────────────────────
 
   private handleResize = (): void => {
-    const parent = this.renderer.domElement.parentElement;
-    if (!parent) return;
-
-    const w = parent.clientWidth;
-    const h = parent.clientHeight;
-
+    if (!this.container) return;
+    const w = this.container.clientWidth;
+    const h = this.container.clientHeight;
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(w, h);
   };
 
-  // -------------------------------------------------------------------------
-  // dispose — full teardown
-  // -------------------------------------------------------------------------
+  // ─── Dispose ────────────────────────────────────────────────────────────
 
   dispose(): void {
     cancelAnimationFrame(this.frameId);
     window.removeEventListener('resize', this.handleResize);
 
-    // Dispose layers
+    const el = this.renderer.domElement;
+    el.removeEventListener('pointerdown', this.onPointerDown);
+    el.removeEventListener('pointermove', this.onPointerMove);
+    el.removeEventListener('pointerup', this.onPointerUp);
+    el.removeEventListener('pointerleave', this.onPointerUp);
+    el.removeEventListener('wheel', this.onWheel);
+    el.removeEventListener('touchstart', this.onTouchStart);
+    el.removeEventListener('touchmove', this.onTouchMove);
+    el.removeEventListener('touchend', this.onTouchEnd);
+
     this.speciesLayer.dispose();
     this.trailLayer.dispose();
-
-    // Dispose earth + atmosphere
-    if (this.earth) {
-      this.scene.remove(this.earth);
-      this.earth.geometry.dispose();
-      if (this.earth.material instanceof THREE.Material) {
-        this.earth.material.dispose();
-      }
-    }
-    if (this.atmosphere) {
-      this.scene.remove(this.atmosphere);
-      this.atmosphere.geometry.dispose();
-      if (this.atmosphere.material instanceof THREE.Material) {
-        this.atmosphere.material.dispose();
-      }
-    }
-
-    // Dispose controls, renderer, remove canvas
-    this.controls.dispose();
+    if (this.earth) { this.scene.remove(this.earth); }
+    if (this.atmo) { this.scene.remove(this.atmo.rim); this.scene.remove(this.atmo.haze); }
     this.renderer.dispose();
-    this.renderer.domElement.remove();
+    el.remove();
   }
 }
