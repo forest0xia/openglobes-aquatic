@@ -1,12 +1,14 @@
 import { createContext, useState, useEffect, type ReactNode } from 'react';
-import type { GlobeTheme } from '@openglobes/core';
+import type { AquaticTheme } from './types';
 import { fishTheme } from './fish';
 import { bioluminescenceTheme } from './bioluminescence';
+
+export type { AquaticTheme } from './types';
 
 export interface ThemeEntry {
   id: string;
   label: string;
-  globeTheme: GlobeTheme;
+  globeTheme: AquaticTheme;
 }
 
 export const THEMES: ThemeEntry[] = [

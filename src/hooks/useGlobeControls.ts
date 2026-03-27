@@ -118,9 +118,11 @@ export function useGlobeControls() {
     if (sceneRefsRef.current) flyTo(sceneRefsRef.current, lat, lng);
   }, []);
 
+  // Cast to `any` — this is transitional glue until FishGlobe migrates to
+  // the new GlobeRenderer and no longer passes a theme to the core Globe.
   const coreTheme = useMemo(() => {
     const skinTexture = GLOBE_SKINS[globeSkin]?.texture ?? theme.globeTheme.globeTexture;
-    return { ...theme.globeTheme, filters: [], globeTexture: skinTexture };
+    return { ...theme.globeTheme, filters: [], globeTexture: skinTexture } as any;
   }, [theme.globeTheme, globeSkin]);
 
   return {
