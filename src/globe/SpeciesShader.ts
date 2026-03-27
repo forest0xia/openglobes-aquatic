@@ -67,8 +67,8 @@ export const speciesVertexShader = `
     gl_Position = projectionMatrix * mvPos;
 
     // UV: map quad corners [(-0.5,-0.5)..(0.5,0.5)] to spritesheet region
-    // Flip Y because WebGL textures have Y=0 at bottom but spritesheet has Y=0 at top
-    vec2 quadUV = vec2(position.x + 0.5, 0.5 - position.y);
+    // flipY=false on the texture, so Y=0 at top matches the manifest
+    vec2 quadUV = vec2(position.x + 0.5, position.y + 0.5);
     vUV = instanceUV.xy + quadUV * instanceUV.zw;
   }
 `;

@@ -188,6 +188,10 @@ export function useGlobe() {
                 tex.colorSpace = THREE.SRGBColorSpace;
                 tex.minFilter = THREE.LinearFilter;
                 tex.magFilter = THREE.LinearFilter;
+                // Spritesheet manifest uses Y=0 at top (image packing convention).
+                // Three.js defaults flipY=true which inverts the Y axis.
+                // Disable flip so UV coordinates match the manifest.
+                tex.flipY = false;
                 resolve(tex);
               },
               undefined,
