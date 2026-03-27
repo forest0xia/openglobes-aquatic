@@ -173,7 +173,8 @@ export function FishGlobe() {
       let bestDist = Infinity;
       let bestRoute: MigrationRoute | null = null;
       const camDist = camera.position.length();
-      const threshold = Math.min(3, Math.max(0.8, camDist / 120));
+      // Very tight threshold — only match when hovering directly on a trail line
+      const threshold = Math.min(1.0, Math.max(0.3, camDist / 500));
 
       for (const route of routes) {
         const wps = route.waypoints;

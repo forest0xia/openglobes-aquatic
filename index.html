@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>深海探索 — 全球海洋生物3D互动地球</title>
+    <meta name="description" content="探索全球200+种海洋生物，在3D地球上观察它们的栖息地、洄游路线和观测地点。" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+SC:wght@400;500;600&family=Outfit:wght@500;600;700&display=swap" rel="stylesheet" />
+
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      body { background: #04060F; overflow: hidden; }
+
+      #og-loading-screen {
+        position: fixed; inset: 0; z-index: 9999;
+        display: flex; flex-direction: column; align-items: center; justify-content: center;
+        background: #04060F;
+        transition: opacity 0.4s ease-out;
+      }
+      #og-loading-screen.fade-out { opacity: 0; pointer-events: none; }
+      #og-loading-title {
+        font-family: 'Noto Sans SC', 'Outfit', sans-serif;
+        font-weight: 600; font-size: 28px;
+        color: rgba(230, 240, 255, 0.95);
+        margin-bottom: 8px; letter-spacing: 0.05em;
+      }
+      #og-loading-subtitle {
+        font-family: 'Noto Sans SC', 'DM Sans', sans-serif;
+        font-size: 13px; color: rgba(120, 140, 170, 0.5); margin-bottom: 32px;
+      }
+      #og-loading-track {
+        width: 240px; height: 3px;
+        background: rgba(76, 201, 240, 0.1); border-radius: 2px; overflow: hidden;
+      }
+      #og-loading-bar {
+        width: 0%; height: 100%; background: #4cc9f0;
+        border-radius: 2px; transition: width 0.3s ease-out;
+      }
+      #og-loading-pct {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 11px; color: rgba(120, 140, 170, 0.5); margin-top: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="og-loading-screen">
+      <div id="og-loading-title">深海探索</div>
+      <div id="og-loading-subtitle">正在加载海洋数据&hellip;</div>
+      <div id="og-loading-track"><div id="og-loading-bar"></div></div>
+      <div id="og-loading-pct">0%</div>
+    </div>
+
+    <div id="root"></div>
+
+    <script>
+      (function () {
+        var bar = document.getElementById('og-loading-bar');
+        var pct = document.getElementById('og-loading-pct');
+        var subtitle = document.getElementById('og-loading-subtitle');
+        var screen = document.getElementById('og-loading-screen');
+        if (!bar || !pct || !subtitle || !screen) return;
+
+        function fadeOut() {
+          screen.classList.add('fade-out');
+          screen.addEventListener('transitionend', function () { screen.remove(); }, { once: true });
+        }
+
+        var poll = setInterval(function () {
+          var lp = window.__ogLoadProgress;
+          if (!lp) return;
+          clearInterval(poll);
+          lp.onProgress(function (progress, done, label) {
+            var p = Math.round(progress * 100);
+            bar.style.width = p + '%';
+            pct.textContent = p + '%';
+            if (label) subtitle.textContent = label;
+            if (done) subtitle.textContent = '加载完成';
+            if (done) setTimeout(fadeOut, 300);
+          });
+        }, 50);
+
+        setTimeout(function () {
+          clearInterval(poll);
+          if (screen.parentNode) fadeOut();
+        }, 10000);
+      })();
+    </script>
+
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

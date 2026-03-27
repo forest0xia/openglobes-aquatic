@@ -16,17 +16,16 @@ export interface MigrationRoute {
   description: string;
 }
 
-// Color by migration type
-// Soft luminous colors — translucent for delicate trail appearance
+// Color by migration type (hex only — opacity is in LineMaterial)
 const TYPE_COLORS: Record<string, string[]> = {
-  anadromous:    ['rgba(239, 71, 111, 0.35)', 'rgba(249, 199, 79, 0.2)'],
-  catadromous:   ['rgba(177, 133, 219, 0.35)', 'rgba(76, 201, 240, 0.2)'],
-  oceanodromous: ['rgba(76, 201, 240, 0.35)', 'rgba(86, 214, 160, 0.2)'],
-  amphidromous:  ['rgba(86, 214, 160, 0.35)', 'rgba(249, 199, 79, 0.2)'],
-  potamodromous: ['rgba(249, 199, 79, 0.35)', 'rgba(239, 71, 111, 0.2)'],
+  anadromous:    ['#ef476f', '#f9c74f'],
+  catadromous:   ['#b185db', '#4cc9f0'],
+  oceanodromous: ['#4cc9f0', '#56d6a0'],
+  amphidromous:  ['#56d6a0', '#f9c74f'],
+  potamodromous: ['#f9c74f', '#ef476f'],
 };
 
-const DEFAULT_COLOR = ['rgba(76, 201, 240, 0.3)', 'rgba(76, 201, 240, 0.15)'];
+const DEFAULT_COLOR = ['#4cc9f0', '#4cc9f0'];
 
 let routesData: MigrationRoute[] = [];
 let trailsData: TrailDatum[] = [];
