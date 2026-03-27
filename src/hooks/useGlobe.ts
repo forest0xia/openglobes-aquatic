@@ -6,6 +6,7 @@ import { GeoLabelsManager } from '../components/GeoLabels';
 import { GEO_LABELS } from '../data/geoLabels';
 import { addStep, completeStep } from '../utils/loadProgress';
 import type { Species } from './useSpeciesData';
+import type { MigrationRoute } from '../data/migrations';
 
 /** Map an AquaticTheme to GlobeThemeConfig consumed by GlobeRenderer. */
 function toGlobeThemeConfig(
@@ -152,7 +153,7 @@ export function useGlobe() {
   // -------------------------------------------------------------------------
 
   const buildSprites = useCallback(
-    async (species: Species[]) => {
+    async (species: Species[], migrationRoutes?: MigrationRoute[]) => {
       const renderer = rendererRef.current;
       if (!renderer) return;
 
@@ -207,6 +208,7 @@ export function useGlobe() {
           manifest,
           sheet.width,
           sheet.height,
+          migrationRoutes,
         );
       } catch (err) {
         console.error('[useGlobe] failed to build species sprites:', err);

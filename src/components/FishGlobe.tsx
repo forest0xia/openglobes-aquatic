@@ -54,12 +54,12 @@ export function FishGlobe() {
   const [showControls, setShowControls] = useState(true);
   const hoverThrottleRef = useRef(0);
 
-  // ── Build species sprites once data + scene are ready ───────────────────
+  // ── Build species sprites + migration route fish once data + scene ready ──
   useEffect(() => {
     if (species.length > 0 && globe.sceneReady) {
-      globe.buildSprites(species);
+      globe.buildSprites(species, migrationRoutes.length > 0 ? migrationRoutes : undefined);
     }
-  }, [species, globe.sceneReady, globe.buildSprites]);
+  }, [species, migrationRoutes, globe.sceneReady, globe.buildSprites]);
 
   // ── Build migration trails ──────────────────────────────────────────────
   // Convert core-style TrailDatum[] from migrations/currents into TrailData[]

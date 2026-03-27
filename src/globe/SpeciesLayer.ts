@@ -6,6 +6,7 @@ import {
   ANIM_CODE,
 } from './SpeciesShader';
 import type { Species, ViewingSpot } from '../hooks/useSpeciesData';
+import type { MigrationRoute } from '../data/migrations';
 
 // ---------------------------------------------------------------------------
 // SpeciesLayer — one InstancedMesh for all ~214 species sprites.
@@ -60,6 +61,9 @@ export class SpeciesLayer {
    * @param sheetWidth   Atlas texture width in pixels
    * @param sheetHeight  Atlas texture height in pixels
    */
+  /** Number of fish placed per route segment (between two waypoints). */
+  static FISH_PER_SEGMENT = 4;
+
   build(
     species: Species[],
     atlasTexture: THREE.Texture,
@@ -68,26 +72,67 @@ export class SpeciesLayer {
     },
     sheetWidth: number,
     sheetHeight: number,
+    migrationRoutes?: MigrationRoute[],
   ): void {
-    // Dispose previous mesh if rebuilding
     this.dispose();
 
-    // --- Expand ALL viewing spots — one instance per spot ----------------------
-    // With InstancedMesh, 700+ instances cost the same as 200 (single draw call).
+    // --- Resolved entry: one per visible instance ---
     type Resolved = {
       sp: Species;
       spot: ViewingSpot;
       rect: { x: number; y: number; w: number; h: number };
+      scaleFactor?: number; // optional override (migration fish are smaller)
     };
 
     const resolved: Resolved[] = [];
+
+    // 1. Species viewing spots
     for (const sp of species) {
       const spriteName = sp.sprite.replace('.png', '');
       const rect = manifest.sprites[spriteName];
       if (!rect) continue;
-
       for (const spot of sp.viewingSpots) {
         resolved.push({ sp, spot, rect });
+      }
+    }
+
+    // 2. Migration route fish — place sprites along each route path
+    if (migrationRoutes) {
+      for (const route of migrationRoutes) {
+        const sci = route.species.toLowerCase().replace(/ /g, '_');
+        const spriteKey = `sp-${sci}`;
+        const rect = manifest.sprites[spriteKey];
+        if (!rect) continue;
+
+        // Create a pseudo-Species for hit test / tooltip
+        const routeSpecies: Species = {
+          aphiaId: 0,
+          tier: 'ecosystem',
+          name: route.species,
+          nameZh: '',
+          tagline: { en: route.description || route.name, zh: '' },
+          scientificName: route.species,
+          sprite: `${spriteKey}.png`,
+          display: { color: '#4cc9f0', animation: 'slow_cruise', scale: 'small' },
+          viewingSpots: [],
+        };
+
+        const wps = route.waypoints;
+        for (let seg = 0; seg < wps.length - 1; seg++) {
+          const from = wps[seg];
+          const to = wps[seg + 1];
+          for (let fi = 0; fi < SpeciesLayer.FISH_PER_SEGMENT; fi++) {
+            const t = (fi + 0.5) / SpeciesLayer.FISH_PER_SEGMENT;
+            const lat = from.lat + (to.lat - from.lat) * t;
+            const lng = from.lng + (to.lng - from.lng) * t;
+            resolved.push({
+              sp: routeSpecies,
+              spot: { name: route.name, country: '', lat, lng, season: '', reliability: 'medium', activity: 'whale_watching' },
+              rect,
+              scaleFactor: 0.6, // migration fish are smaller
+            });
+          }
+        }
       }
     }
 
@@ -135,7 +180,8 @@ export class SpeciesLayer {
       // Size (width/height in world units, preserving aspect ratio)
       const scaleMult = SCALE_MAP[sp.display.scale] ?? 1.0;
       const tierMult = TIER_MULT[sp.tier] ?? 1.0;
-      const mult = scaleMult * tierMult;
+      const extra = resolved[i].scaleFactor ?? 1.0;
+      const mult = scaleMult * tierMult * extra;
       const worldW = (rect.w / PX_TO_WORLD) * mult;
       const worldH = (rect.h / PX_TO_WORLD) * mult;
       sizeArr[i * 2] = worldW;
