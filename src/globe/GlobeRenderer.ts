@@ -56,10 +56,9 @@ export class GlobeRenderer {
 
     // --- Orbit controls -----------------------------------------------------
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
-    this.controls.enableDamping = true;
-    this.controls.dampingFactor = 0.1;
-    this.controls.rotateSpeed = 0.5;
-    this.controls.zoomSpeed = 0.8;
+    this.controls.enableDamping = false; // no inertia — instant response
+    this.controls.rotateSpeed = 1.0;     // 1:1 mouse-to-globe mapping
+    this.controls.zoomSpeed = 1.2;
     this.controls.minDistance = 120;
     this.controls.maxDistance = 500;
     this.controls.enablePan = false;
