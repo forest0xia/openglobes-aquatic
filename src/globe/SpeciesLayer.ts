@@ -124,7 +124,7 @@ export class SpeciesLayer {
     const uvArr = new Float32Array(count * 4);
     const phaseArr = new Float32Array(count);
     const animArr = new Float32Array(count);
-    const scaleArr = new Float32Array(count);
+    const sizeArr = new Float32Array(count * 2); // width, height per instance
 
     this.speciesRefs = [];
     this.positions = [];
@@ -154,12 +154,15 @@ export class SpeciesLayer {
       // Animation code
       animArr[i] = ANIM_CODE[sp.display.animation] ?? 0;
 
-      // Scale
+      // Size (width/height in world units, preserving aspect ratio)
       const scaleMult = SCALE_MAP[sp.display.scale] ?? 1.0;
       const tierMult = TIER_MULT[sp.tier] ?? 1.0;
-      const worldScale = (rect.w / PX_TO_WORLD) * scaleMult * tierMult;
-      scaleArr[i] = worldScale;
-      this.scales.push(worldScale);
+      const mult = scaleMult * tierMult;
+      const worldW = (rect.w / PX_TO_WORLD) * mult;
+      const worldH = (rect.h / PX_TO_WORLD) * mult;
+      sizeArr[i * 2] = worldW;
+      sizeArr[i * 2 + 1] = worldH;
+      this.scales.push(Math.max(worldW, worldH));
 
       this.speciesRefs.push(sp);
     }
@@ -182,8 +185,8 @@ export class SpeciesLayer {
       new THREE.InstancedBufferAttribute(animArr, 1),
     );
     geometry.setAttribute(
-      'instanceScale',
-      new THREE.InstancedBufferAttribute(scaleArr, 1),
+      'instanceSize',
+      new THREE.InstancedBufferAttribute(sizeArr, 2),
     );
 
     // --- Material ------------------------------------------------------------

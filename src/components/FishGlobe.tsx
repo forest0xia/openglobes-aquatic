@@ -173,7 +173,7 @@ export function FishGlobe() {
       let bestDist = Infinity;
       let bestRoute: MigrationRoute | null = null;
       const camDist = camera.position.length();
-      const threshold = Math.min(5, Math.max(1.5, camDist / 80));
+      const threshold = Math.min(3, Math.max(0.8, camDist / 120));
 
       for (const route of routes) {
         const wps = route.waypoints;
@@ -238,15 +238,16 @@ export function FishGlobe() {
       lastPointerRef.current.x = e.clientX;
       lastPointerRef.current.y = e.clientY;
 
-      handleRouteHover(e.clientX, e.clientY);
-
+      // Species hover takes priority over route hover
       const sp = findSpeciesAtCursor(e.clientX, e.clientY);
       if (sp) {
         setHoveredSpecies({ species: sp, x: e.clientX, y: e.clientY });
+        setRouteTooltip(null);
         (e.currentTarget as HTMLElement).style.cursor = 'pointer';
       } else {
         if (hoveredSpecies) setHoveredSpecies(null);
-        (e.currentTarget as HTMLElement).style.cursor = 'default';
+        handleRouteHover(e.clientX, e.clientY);
+        (e.currentTarget as HTMLElement).style.cursor = routeTooltip ? 'pointer' : 'default';
       }
     },
     [findSpeciesAtCursor, handleRouteHover, hoveredSpecies],
