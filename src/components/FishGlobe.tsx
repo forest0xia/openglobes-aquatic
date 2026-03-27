@@ -260,9 +260,14 @@ export function FishGlobe() {
       if (sp) {
         setSelectedSpecies(sp);
         setHoveredSpecies(null);
+        // Fly to the species' best viewing spot
+        const spot = sp.viewingSpots[0];
+        if (spot) {
+          globe.flyTo(spot.lat, spot.lng, { duration: 1500, zoomDistance: 180 });
+        }
       }
     },
-    [findSpeciesAtCursor],
+    [findSpeciesAtCursor, globe],
   );
 
   // ── Render ──────────────────────────────────────────────────────────────
