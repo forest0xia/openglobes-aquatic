@@ -47,7 +47,7 @@ export interface Hotspot {
   minSpeciesCount: number;
 }
 
-addStep('species', 4, 'Loading species data');
+addStep('species', 4, '正在加载物种数据');
 
 export function useSpeciesData() {
   const [species, setSpecies] = useState<Species[]>([]);

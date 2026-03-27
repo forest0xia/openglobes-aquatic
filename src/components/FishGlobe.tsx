@@ -356,13 +356,13 @@ export function FishGlobe() {
                   className="og-mono-sm"
                   style={{ color: 'var(--og-accent)' }}
                 >
-                  {species.length} species &middot; {hotspots.length} hotspots
+                  {species.length} 个物种 &middot; {hotspots.length} 个热点
                 </span>
               </div>
             )}
 
             <div>
-              <div className="og-section-label">Overlays</div>
+              <div className="og-section-label">图层叠加</div>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                 <button
                   type="button"
@@ -422,9 +422,9 @@ export function FishGlobe() {
             )}
 
             <div style={{ marginTop: 16 }}>
-              <div className="og-section-label">Labels</div>
+              <div className="og-section-label">地理标签</div>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                {['ocean', 'sea', 'continent', 'island'].map((type) => (
+                {[['ocean','大洋'],['sea','海域'],['continent','大陆'],['island','岛屿']].map(([type, label]) => (
                   <button
                     key={type}
                     type="button"
@@ -436,16 +436,16 @@ export function FishGlobe() {
                           : [...prev, type],
                       )
                     }
-                    style={{ fontSize: 11, textTransform: 'capitalize' }}
+                    style={{ fontSize: 11 }}
                   >
-                    {type}
+                    {label}
                   </button>
                 ))}
               </div>
             </div>
 
             <div style={{ marginTop: 16 }}>
-              <div className="og-section-label">Globe Skin</div>
+              <div className="og-section-label">地球贴图</div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                 {Object.entries(globe.GLOBE_SKINS).map(([key, { label }]) => (
                   <button
@@ -518,36 +518,16 @@ export function FishGlobe() {
               lineHeight: 1.4,
             }}
           >
-            {hoveredSpecies.species.tagline.en}
+            {hoveredSpecies.species.tagline.zh || hoveredSpecies.species.tagline.en}
           </div>
           <div
             style={{ marginTop: 6, display: 'flex', gap: 8, flexWrap: 'wrap' }}
           >
-            <span
-              className="og-chip"
-              style={{
-                fontSize: 9,
-                padding: '2px 6px',
-                textTransform: 'capitalize',
-              }}
-            >
-              {hoveredSpecies.species.tier}
+            <span className="og-chip" style={{ fontSize: 9, padding: '2px 6px' }}>
+              {{ star: '明星物种', ecosystem: '生态关键', surprise: '惊喜发现' }[hoveredSpecies.species.tier] || hoveredSpecies.species.tier}
             </span>
-            <span
-              className="og-chip"
-              style={{ fontSize: 9, padding: '2px 6px' }}
-            >
-              {hoveredSpecies.species.viewingSpots.length} locations
-            </span>
-            <span
-              className="og-chip"
-              style={{
-                fontSize: 9,
-                padding: '2px 6px',
-                textTransform: 'capitalize',
-              }}
-            >
-              {hoveredSpecies.species.display.animation.replace('_', ' ')}
+            <span className="og-chip" style={{ fontSize: 9, padding: '2px 6px' }}>
+              {hoveredSpecies.species.viewingSpots.length}个观测点
             </span>
           </div>
         </div>
@@ -617,68 +597,29 @@ export function FishGlobe() {
               )}
             </div>
 
-            {/* Tagline */}
-            <div
-              style={{
-                fontFamily: 'var(--og-font-body)',
-                fontSize: 13,
-                color: 'var(--og-text-secondary)',
-                lineHeight: 1.5,
-                marginBottom: 16,
-              }}
-            >
-              {selectedSpecies.tagline.en}
-              {selectedSpecies.tagline.zh && (
-                <div
-                  style={{
-                    color: 'var(--og-text-tertiary)',
-                    marginTop: 4,
-                    fontSize: 12,
-                  }}
-                >
-                  {selectedSpecies.tagline.zh}
+            {/* Tagline — Chinese first */}
+            <div style={{
+              fontFamily: 'var(--og-font-body)', fontSize: 13,
+              color: 'var(--og-text-secondary)', lineHeight: 1.5, marginBottom: 16,
+            }}>
+              {selectedSpecies.tagline.zh || selectedSpecies.tagline.en}
+              {selectedSpecies.tagline.zh && selectedSpecies.tagline.en && (
+                <div style={{ color: 'var(--og-text-tertiary)', marginTop: 4, fontSize: 12 }}>
+                  {selectedSpecies.tagline.en}
                 </div>
               )}
             </div>
 
             {/* Tags */}
-            <div
-              style={{
-                display: 'flex',
-                gap: 6,
-                flexWrap: 'wrap',
-                marginBottom: 16,
-              }}
-            >
-              <span
-                className="og-chip og-chip--active"
-                style={{
-                  fontSize: 10,
-                  padding: '3px 8px',
-                  textTransform: 'capitalize',
-                }}
-              >
-                {selectedSpecies.tier}
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 16 }}>
+              <span className="og-chip og-chip--active" style={{ fontSize: 10, padding: '3px 8px' }}>
+                {{ star: '明星物种', ecosystem: '生态关键', surprise: '惊喜发现' }[selectedSpecies.tier] || selectedSpecies.tier}
               </span>
-              <span
-                className="og-chip"
-                style={{
-                  fontSize: 10,
-                  padding: '3px 8px',
-                  textTransform: 'capitalize',
-                }}
-              >
-                {selectedSpecies.display.scale}
+              <span className="og-chip" style={{ fontSize: 10, padding: '3px 8px' }}>
+                {{ tiny: '微型', small: '小型', medium: '中型', large: '大型', massive: '巨型' }[selectedSpecies.display.scale] || selectedSpecies.display.scale}
               </span>
-              <span
-                className="og-chip"
-                style={{
-                  fontSize: 10,
-                  padding: '3px 8px',
-                  textTransform: 'capitalize',
-                }}
-              >
-                {selectedSpecies.display.animation.replace('_', ' ')}
+              <span className="og-chip" style={{ fontSize: 10, padding: '3px 8px' }}>
+                {{ slow_cruise: '缓慢巡游', schooling: '群游', hovering: '悬停', drifting: '漂流', darting: '快速冲刺', static: '固着', none: '固着' }[selectedSpecies.display.animation] || selectedSpecies.display.animation}
               </span>
             </div>
 
@@ -687,7 +628,7 @@ export function FishGlobe() {
               className="og-section-label"
               style={{ marginBottom: 8 }}
             >
-              Viewing Spots ({selectedSpecies.viewingSpots.length})
+              观测地点 ({selectedSpecies.viewingSpots.length})
             </div>
             <div
               style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
@@ -741,10 +682,10 @@ export function FishGlobe() {
                   >
                     <span>{spot.season}</span>
                     <span style={{ textTransform: 'capitalize' }}>
-                      {spot.reliability}
+                      {{ high: '高', medium: '中', seasonal: '季节性' }[spot.reliability] || spot.reliability}
                     </span>
-                    <span style={{ textTransform: 'capitalize' }}>
-                      {spot.activity.replace('_', ' ')}
+                    <span>
+                      {{ diving: '潜水', snorkeling: '浮潜', whale_watching: '观鲸', shore: '岸边', aquarium: '水族馆' }[spot.activity] || spot.activity}
                     </span>
                   </div>
                 </button>
@@ -854,7 +795,7 @@ export function FishGlobe() {
             whiteSpace: 'nowrap',
           }}
         >
-          Data: FishBase (CC-BY-NC) &middot; OBIS (CC-BY) &middot; GBIF
+          数据来源: FishBase (CC-BY-NC) &middot; OBIS (CC-BY) &middot; GBIF
         </span>
       </div>
     </div>

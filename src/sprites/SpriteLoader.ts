@@ -9,7 +9,7 @@ import { addStep, completeStep } from '../utils/loadProgress';
 // Each sprite gets a CanvasTexture cropped from the sheet.
 // ---------------------------------------------------------------------------
 
-addStep('sprites', 4, 'Loading species sprites');
+addStep('sprites', 4, '正在加载物种精灵');
 
 /** Body-group → accent color (used by filter UI chips) */
 export const BODY_GROUP_COLORS: Record<string, string> = {

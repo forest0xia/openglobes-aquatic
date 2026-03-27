@@ -31,7 +31,7 @@ function toGlobeThemeConfig(
   };
 }
 
-addStep('scene', 3, 'Initializing 3D scene');
+addStep('scene', 3, '正在初始化3D场景');
 
 // ---------------------------------------------------------------------------
 // Globe skin catalogue — different earth textures the user can swap between.
@@ -39,12 +39,12 @@ addStep('scene', 3, 'Initializing 3D scene');
 
 const GLOBE_SKINS: Record<string, { label: string; texture: string }> = {
   default: {
-    label: 'Blue Marble',
+    label: '蓝色大理石',
     texture: '//unpkg.com/three-globe/example/img/earth-blue-marble.jpg',
   },
-  dark: { label: 'Night Earth', texture: '/textures/earth-dark.jpg' },
-  topo: { label: 'Topology', texture: '/textures/earth-topology.jpg' },
-  hd: { label: 'HD Satellite', texture: '/textures/earth-blue-marble-8k.jpg' },
+  dark: { label: '夜景地球', texture: '/textures/earth-dark.jpg' },
+  topo: { label: '地形', texture: '/textures/earth-topology.jpg' },
+  hd: { label: '高清卫星', texture: '/textures/earth-blue-marble-8k.jpg' },
 };
 
 // ---------------------------------------------------------------------------

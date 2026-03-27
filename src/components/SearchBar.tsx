@@ -152,8 +152,8 @@ export default function SearchBar({ totalSpecies = 4677, onSelect }: SearchBarPr
           onKeyDown={handleKeyDown}
           onFocus={loadIndex}
           placeholder={loaded
-            ? `Search ${totalSpecies.toLocaleString()} species...`
-            : 'Loading search...'
+            ? `搜索 ${totalSpecies.toLocaleString()} 个物种...`
+            : '加载搜索数据...'
           }
           autoComplete="off"
           spellCheck={false}

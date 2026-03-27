@@ -8,8 +8,8 @@ import '../styles/global.css';
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>AquaticGlobe — 200,000+ aquatic species worldwide</title>
-    <meta name="description" content="Interactive 3D globe showing 200,000+ aquatic species worldwide. Explore fish, mammals, cephalopods, reptiles, and more." />
+    <title>深海探索 — 全球海洋生物3D互动地球</title>
+    <meta name="description" content="探索全球200+种海洋生物，在3D地球上观察它们的栖息地、洄游路线和观测地点。" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Outfit:wght@500;600;700&display=swap" rel="stylesheet" />
@@ -70,8 +70,8 @@ import '../styles/global.css';
   <body>
     <!-- Loading screen — pure HTML, visible before any JS executes -->
     <div id="og-loading-screen">
-      <div id="og-loading-title">AquaticGlobe</div>
-      <div id="og-loading-subtitle">Loading ocean data&hellip;</div>
+      <div id="og-loading-title">深海探索</div>
+      <div id="og-loading-subtitle">正在加载海洋数据&hellip;</div>
       <div id="og-loading-track">
         <div id="og-loading-bar"></div>
       </div>
@@ -108,7 +108,7 @@ import '../styles/global.css';
             bar.style.width = p + '%';
             pct.textContent = p + '%';
             if (label) subtitle.textContent = label;
-            if (done) subtitle.textContent = 'Ready';
+            if (done) subtitle.textContent = '加载完成';
 
             if (done) {
               // Small delay so the user sees 100%
