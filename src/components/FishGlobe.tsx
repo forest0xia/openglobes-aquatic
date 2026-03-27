@@ -1,119 +1,269 @@
-import { useState, useCallback, useEffect, useRef, lazy, Suspense } from 'react';
-import { Globe } from '@openglobes/core';
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import * as THREE from 'three';
 import SearchBar from './SearchBar';
 import { ZoomControls } from './ZoomControls';
-import { useGlobeControls } from '../hooks/useGlobeControls';
+import { useGlobe } from '../hooks/useGlobe';
 import { useSpeciesData } from '../hooks/useSpeciesData';
-import { useMigrationRoutes } from '../hooks/useMigrationRoutes';
 import type { Species } from '../hooks/useSpeciesData';
-import { flyTo } from '../utils/flyTo';
+import {
+  loadMigrationRoutes,
+  getMigrationRoutes,
+  getMigrationTrails,
+  type MigrationRoute,
+} from '../data/migrations';
+import { OCEAN_CURRENTS, CURRENTS_DEFAULT_VISIBLE } from '../data/currents';
+import { GLOBE_RADIUS } from '../globe/coordUtils';
+import type { TrailData } from '../globe/TrailLayer';
 
-const FishDetail = lazy(() => import('./FishDetail').then(m => ({ default: m.FishDetail })));
-
-// Screen-space projection for hover/click detection
-const _projVec = new THREE.Vector3();
+// ---------------------------------------------------------------------------
+// FishGlobe — main application shell.
+//
+// Renders a full-screen custom globe (GlobeRenderer via useGlobe hook) with
+// species sprites, migration trails, search, hover tooltips, and detail panel.
+// ---------------------------------------------------------------------------
 
 export function FishGlobe() {
-  const globe = useGlobeControls();
+  const globe = useGlobe();
   const { species, hotspots, loading: dataLoading } = useSpeciesData();
-  const migration = useMigrationRoutes(globe.sceneRefsRef);
 
+  // ── Migration route state ───────────────────────────────────────────────
+  const [migrationRoutes, setMigrationRoutes] = useState<MigrationRoute[]>([]);
+  const [maxMigrationRoutes, setMaxMigrationRoutes] = useState(0);
+  const [showMigrations, setShowMigrations] = useState(true);
+  const [showCurrents, setShowCurrents] = useState(CURRENTS_DEFAULT_VISIBLE);
+  const [routeTooltip, setRouteTooltip] = useState<{
+    x: number;
+    y: number;
+    route: MigrationRoute;
+  } | null>(null);
+
+  // Load migration routes on mount
+  useEffect(() => {
+    loadMigrationRoutes().then(() => {
+      setMigrationRoutes(getMigrationRoutes());
+    });
+  }, []);
+
+  // ── UI state ────────────────────────────────────────────────────────────
   const [selectedSpecies, setSelectedSpecies] = useState<Species | null>(null);
-  const [hoveredSpecies, setHoveredSpecies] = useState<{ species: Species; x: number; y: number } | null>(null);
+  const [hoveredSpecies, setHoveredSpecies] = useState<{
+    species: Species;
+    x: number;
+    y: number;
+  } | null>(null);
   const [showControls, setShowControls] = useState(true);
   const hoverThrottleRef = useRef(0);
 
-  // Build species sprites once data + scene are both ready
+  // ── Build species sprites once data + scene are ready ───────────────────
   useEffect(() => {
     if (species.length > 0 && globe.sceneReady) {
       globe.buildSprites(species);
     }
   }, [species, globe.sceneReady, globe.buildSprites]);
 
-  // Build migration route sprites once routes + scene are ready
+  // ── Build migration trails ──────────────────────────────────────────────
+  // Convert core-style TrailDatum[] from migrations/currents into TrailData[]
+  // that the new TrailLayer understands.
   useEffect(() => {
-    if (migration.migrationRoutes.length > 0 && globe.sceneReady) {
-      globe.buildMigrationSprites(migration.migrationRoutes);
-    }
-  }, [migration.migrationRoutes, globe.sceneReady, globe.buildMigrationSprites]);
+    if (!globe.sceneReady || !globe.renderer) return;
 
-  // Find species nearest to cursor via screen-space projection (more reliable than raycasting)
-  const findSpeciesAtCursor = useCallback((clientX: number, clientY: number): Species | null => {
-    const refs = globe.sceneRefsRef.current;
-    if (!refs) return null;
-    const entries = globe.spriteLayerRef.current?.getEntries() ?? [];
-    if (entries.length === 0) return null;
+    const coreTrails = [
+      ...(showMigrations ? getMigrationTrails(maxMigrationRoutes) : []),
+      ...(showCurrents ? OCEAN_CURRENTS : []),
+    ];
 
-    const rect = refs.renderer.domElement.getBoundingClientRect();
-    const mx = clientX - rect.left;
-    const my = clientY - rect.top;
+    // Adapt from core TrailDatum shape → TrailData shape
+    const trailData: TrailData[] = coreTrails.map((t: any) => ({
+      waypoints: t.waypoints as { lat: number; lng: number }[],
+      color: Array.isArray(t.color) ? t.color[0] : (t.color ?? '#4cc9f0'),
+      width: t.width ?? 1.5,
+      speed: t.speed,
+    }));
 
-    let bestScore = Infinity;
-    let bestSpecies: Species | null = null;
+    const r = globe.renderer.getRenderer();
+    const resolution = new THREE.Vector2(
+      r.domElement.width,
+      r.domElement.height,
+    );
+    globe.renderer.trailLayer.build(trailData, resolution);
+  }, [
+    globe.sceneReady,
+    globe.renderer,
+    showMigrations,
+    showCurrents,
+    maxMigrationRoutes,
+    migrationRoutes,
+  ]);
 
-    // Camera distance for screen-size estimation
-    const camDist = refs.camera.position.length();
+  // ── Hit testing — find species at cursor ────────────────────────────────
+  const findSpeciesAtCursor = useCallback(
+    (clientX: number, clientY: number): Species | null => {
+      if (!globe.renderer) return null;
+      const r = globe.renderer.getRenderer();
+      const rect = r.domElement.getBoundingClientRect();
+      const mx = clientX - rect.left;
+      const my = clientY - rect.top;
+      return globe.renderer.speciesLayer.hitTest(
+        globe.renderer.getCamera(),
+        mx,
+        my,
+        rect.width,
+        rect.height,
+      );
+    },
+    [globe.renderer],
+  );
 
-    for (let i = 0, len = entries.length; i < len; i++) {
-      const e = entries[i];
-      if (!e.sprite.visible) continue;
-      _projVec.set(e.sprite.position.x, e.sprite.position.y, e.sprite.position.z);
-      _projVec.project(refs.camera);
-      // Skip behind camera
-      if (_projVec.z > 1) continue;
-      const sx = ((_projVec.x + 1) / 2) * rect.width;
-      const sy = ((1 - _projVec.y) / 2) * rect.height;
-      const dx = sx - mx;
-      const dy = sy - my;
-      const pixelDist = Math.sqrt(dx * dx + dy * dy);
+  // ── Route hover — sphere intersection to get lat/lng ────────────────────
+  const raycasterRef = useRef(new THREE.Raycaster());
+  const ndcRef = useRef(new THREE.Vector2());
+  const showMigrationsRef = useRef(showMigrations);
+  showMigrationsRef.current = showMigrations;
+  const migrationRoutesRef = useRef(migrationRoutes);
+  migrationRoutesRef.current = migrationRoutes;
 
-      // Hit radius scales with sprite's world size projected to screen
-      // Bigger sprites = bigger hit area, tiny sprites get a minimum 25px radius
-      const worldSize = e.screenW || 1;
-      const projectedSize = (worldSize / camDist) * rect.height * 0.5;
-      const hitRadius = Math.max(25, projectedSize * 0.6);
-
-      if (pixelDist < hitRadius && pixelDist < bestScore) {
-        bestScore = pixelDist;
-        bestSpecies = e.species;
+  const handleRouteHover = useCallback(
+    (clientX: number, clientY: number) => {
+      const routes = migrationRoutesRef.current;
+      if (
+        !globe.renderer ||
+        !showMigrationsRef.current ||
+        routes.length === 0
+      ) {
+        setRouteTooltip(null);
+        return;
       }
-    }
-    return bestSpecies;
-  }, [globe.sceneRefsRef, globe.spriteLayerRef]);
 
+      const camera = globe.renderer.getCamera();
+      const r = globe.renderer.getRenderer();
+      const rect = r.domElement.getBoundingClientRect();
+
+      ndcRef.current.set(
+        ((clientX - rect.left) / rect.width) * 2 - 1,
+        -((clientY - rect.top) / rect.height) * 2 + 1,
+      );
+
+      raycasterRef.current.setFromCamera(ndcRef.current, camera);
+
+      // Intersect with a virtual sphere (the globe) instead of the actual mesh
+      const origin = raycasterRef.current.ray.origin;
+      const dir = raycasterRef.current.ray.direction;
+      // Ray-sphere intersection: ||origin + t*dir||^2 = R^2
+      const a = dir.dot(dir);
+      const b = 2 * origin.dot(dir);
+      const c = origin.dot(origin) - GLOBE_RADIUS * GLOBE_RADIUS;
+      const discriminant = b * b - 4 * a * c;
+
+      if (discriminant < 0) {
+        setRouteTooltip(null);
+        return;
+      }
+
+      const t = (-b - Math.sqrt(discriminant)) / (2 * a);
+      if (t < 0) {
+        setRouteTooltip(null);
+        return;
+      }
+
+      const hp = origin.clone().addScaledVector(dir, t);
+      const rr = Math.sqrt(hp.x ** 2 + hp.y ** 2 + hp.z ** 2);
+      const hitLat = Math.asin(hp.y / rr) * (180 / Math.PI);
+      const hitLng = Math.atan2(hp.x, hp.z) * (180 / Math.PI);
+
+      let bestDist = Infinity;
+      let bestRoute: MigrationRoute | null = null;
+      const camDist = camera.position.length();
+      const threshold = Math.min(5, Math.max(1.5, camDist / 80));
+
+      for (const route of routes) {
+        const wps = route.waypoints;
+        for (let i = 0; i < wps.length; i++) {
+          const d0 = Math.sqrt(
+            (wps[i].lat - hitLat) ** 2 + (wps[i].lng - hitLng) ** 2,
+          );
+          if (d0 < bestDist && d0 < threshold) {
+            bestDist = d0;
+            bestRoute = route;
+          }
+          if (i < wps.length - 1) {
+            const ax = wps[i].lng,
+              ay = wps[i].lat;
+            const bx = wps[i + 1].lng,
+              by = wps[i + 1].lat;
+            const dx = bx - ax,
+              dy = by - ay;
+            const lenSq = dx * dx + dy * dy;
+            if (lenSq > 0) {
+              const tt = Math.max(
+                0,
+                Math.min(
+                  1,
+                  ((hitLng - ax) * dx + (hitLat - ay) * dy) / lenSq,
+                ),
+              );
+              const projX = ax + tt * dx,
+                projY = ay + tt * dy;
+              const dSeg = Math.sqrt(
+                (projX - hitLng) ** 2 + (projY - hitLat) ** 2,
+              );
+              if (dSeg < bestDist && dSeg < threshold) {
+                bestDist = dSeg;
+                bestRoute = route;
+              }
+            }
+          }
+        }
+      }
+
+      if (bestRoute) {
+        setRouteTooltip({ x: clientX, y: clientY, route: bestRoute });
+      } else {
+        setRouteTooltip(null);
+      }
+    },
+    [globe.renderer],
+  );
+
+  // ── Pointer handlers ────────────────────────────────────────────────────
   const lastPointerRef = useRef({ x: 0, y: 0 });
-  const handlePointerMove = useCallback((e: React.PointerEvent) => {
-    // Throttle to every 150ms and skip if pointer barely moved
-    const now = Date.now();
-    if (now - hoverThrottleRef.current < 150) return;
-    const dx = e.clientX - lastPointerRef.current.x;
-    const dy = e.clientY - lastPointerRef.current.y;
-    if (dx * dx + dy * dy < 9) return; // less than 3px movement
-    hoverThrottleRef.current = now;
-    lastPointerRef.current.x = e.clientX;
-    lastPointerRef.current.y = e.clientY;
+  const handlePointerMove = useCallback(
+    (e: React.PointerEvent) => {
+      // Throttle to every 150ms and skip if pointer barely moved
+      const now = Date.now();
+      if (now - hoverThrottleRef.current < 150) return;
+      const dx = e.clientX - lastPointerRef.current.x;
+      const dy = e.clientY - lastPointerRef.current.y;
+      if (dx * dx + dy * dy < 9) return;
+      hoverThrottleRef.current = now;
+      lastPointerRef.current.x = e.clientX;
+      lastPointerRef.current.y = e.clientY;
 
-    migration.handleRouteHover(e as any);
+      handleRouteHover(e.clientX, e.clientY);
 
-    const sp = findSpeciesAtCursor(e.clientX, e.clientY);
-    if (sp) {
-      setHoveredSpecies({ species: sp, x: e.clientX, y: e.clientY });
-      (e.currentTarget as HTMLElement).style.cursor = 'pointer';
-    } else {
-      if (hoveredSpecies) setHoveredSpecies(null);
-      (e.currentTarget as HTMLElement).style.cursor = 'default';
-    }
-  }, [findSpeciesAtCursor, migration, hoveredSpecies]);
+      const sp = findSpeciesAtCursor(e.clientX, e.clientY);
+      if (sp) {
+        setHoveredSpecies({ species: sp, x: e.clientX, y: e.clientY });
+        (e.currentTarget as HTMLElement).style.cursor = 'pointer';
+      } else {
+        if (hoveredSpecies) setHoveredSpecies(null);
+        (e.currentTarget as HTMLElement).style.cursor = 'default';
+      }
+    },
+    [findSpeciesAtCursor, handleRouteHover, hoveredSpecies],
+  );
 
-  const handleClick = useCallback((e: React.MouseEvent) => {
-    const sp = findSpeciesAtCursor(e.clientX, e.clientY);
-    if (sp) {
-      setSelectedSpecies(sp);
-      setHoveredSpecies(null);
-    }
-  }, [findSpeciesAtCursor]);
+  const handleClick = useCallback(
+    (e: React.MouseEvent) => {
+      const sp = findSpeciesAtCursor(e.clientX, e.clientY);
+      if (sp) {
+        setSelectedSpecies(sp);
+        setHoveredSpecies(null);
+      }
+    },
+    [findSpeciesAtCursor],
+  );
 
+  // ── Render ──────────────────────────────────────────────────────────────
   return (
     <div
       id="og-app"
@@ -127,29 +277,31 @@ export function FishGlobe() {
         background: 'var(--og-bg-void)',
       }}
     >
-      {/* ── Globe ───────────────────────────────────────────────────── */}
-      <Globe
-        key={globe.globeSkin}
-        theme={globe.coreTheme}
-        points={[]}
-        trails={migration.memoTrails}
-        onSceneReady={globe.handleSceneReady}
-        onFrame={globe.handleFrame}
+      {/* ── Globe canvas container ─────────────────────────────────────── */}
+      <div
+        ref={globe.containerRef}
+        style={{
+          width: '100%',
+          height: '100%',
+          position: 'absolute',
+          inset: 0,
+        }}
       />
 
-      {/* ── Search bar ──────────────────────────────────────────────── */}
+      {/* ── Search bar ──────────────────────────────────────────────────── */}
       <SearchBar
         totalSpecies={species.length || 200}
-        onSelect={(point) => {
-          const found = species.find(s =>
-            s.name.toLowerCase().includes(point.name.toLowerCase()) ||
-            s.nameZh === point.name
+        onSelect={(point: any) => {
+          const found = species.find(
+            (s) =>
+              s.name.toLowerCase().includes(point.name.toLowerCase()) ||
+              s.nameZh === point.name,
           );
           if (found) {
             setSelectedSpecies(found);
             const spot = found.viewingSpots[0];
-            if (spot && globe.sceneRefsRef.current) {
-              flyTo(globe.sceneRefsRef.current, spot.lat, spot.lng, {
+            if (spot) {
+              globe.flyTo(spot.lat, spot.lng, {
                 duration: 1500,
                 zoomDistance: 130,
               });
@@ -158,32 +310,51 @@ export function FishGlobe() {
         }}
       />
 
-      {/* ── Control panel toggle ──────────────────────────────────── */}
+      {/* ── Control panel toggle ──────────────────────────────────────── */}
       <button
         type="button"
         className={`og-chip${showControls ? ' og-chip--active' : ''}`}
-        onClick={() => setShowControls(v => !v)}
+        onClick={() => setShowControls((v) => !v)}
         style={{
-          position: 'absolute', top: 52, left: 16, zIndex: 15,
-          fontSize: 10, height: 26, padding: '0 10px',
+          position: 'absolute',
+          top: 52,
+          left: 16,
+          zIndex: 15,
+          fontSize: 10,
+          height: 26,
+          padding: '0 10px',
         }}
       >
         Controls
       </button>
 
-      {/* ── Control panel ─────────────────────────────────────────── */}
+      {/* ── Control panel ─────────────────────────────────────────────── */}
       {showControls && (
         <div
           className="og-glass hidden md:block"
           style={{
-            position: 'absolute', top: 84, left: 16, width: 240, zIndex: 10,
-            animation: 'slideInLeft 400ms cubic-bezier(0.16, 1, 0.3, 1) forwards',
+            position: 'absolute',
+            top: 84,
+            left: 16,
+            width: 240,
+            zIndex: 10,
+            animation:
+              'slideInLeft 400ms cubic-bezier(0.16, 1, 0.3, 1) forwards',
           }}
         >
           <div style={{ padding: '16px 16px 20px' }}>
             {!dataLoading && (
-              <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 16 }}>
-                <span className="og-mono-sm" style={{ color: 'var(--og-accent)' }}>
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'center',
+                  marginBottom: 16,
+                }}
+              >
+                <span
+                  className="og-mono-sm"
+                  style={{ color: 'var(--og-accent)' }}
+                >
                   {species.length} species &middot; {hotspots.length} hotspots
                 </span>
               </div>
@@ -192,23 +363,59 @@ export function FishGlobe() {
             <div>
               <div className="og-section-label">Overlays</div>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                <button type="button" className={`og-chip${migration.showMigrations ? ' og-chip--active' : ''}`}
-                  onClick={() => migration.setShowMigrations(v => !v)}>Migration Routes</button>
-                <button type="button" className={`og-chip${migration.showCurrents ? ' og-chip--active' : ''}`}
-                  onClick={() => migration.setShowCurrents(v => !v)}>Ocean Currents</button>
-                <button type="button" className={`og-chip${globe.isNightMode ? ' og-chip--active' : ''}`}
-                  onClick={() => globe.setThemeId(globe.isNightMode ? 'fish' : 'bioluminescence')}>Night Mode</button>
+                <button
+                  type="button"
+                  className={`og-chip${showMigrations ? ' og-chip--active' : ''}`}
+                  onClick={() => setShowMigrations((v) => !v)}
+                >
+                  Migration Routes
+                </button>
+                <button
+                  type="button"
+                  className={`og-chip${showCurrents ? ' og-chip--active' : ''}`}
+                  onClick={() => setShowCurrents((v) => !v)}
+                >
+                  Ocean Currents
+                </button>
+                <button
+                  type="button"
+                  className={`og-chip${globe.isNightMode ? ' og-chip--active' : ''}`}
+                  onClick={() =>
+                    globe.setThemeId(
+                      globe.isNightMode ? 'fish' : 'bioluminescence',
+                    )
+                  }
+                >
+                  Night Mode
+                </button>
               </div>
             </div>
 
-            {migration.showMigrations && migration.migrationRoutes.length > 0 && (
-              <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
-                <input type="range" min={1} max={migration.migrationRoutes.length}
-                  value={migration.maxMigrationRoutes || migration.migrationRoutes.length}
-                  onChange={(e) => migration.setMaxMigrationRoutes(parseInt(e.target.value))}
-                  style={{ flex: 1, accentColor: 'var(--og-accent)' }} />
-                <span className="og-mono-sm" style={{ fontSize: 10, whiteSpace: 'nowrap' }}>
-                  {migration.maxMigrationRoutes || migration.migrationRoutes.length}/{migration.migrationRoutes.length}
+            {showMigrations && migrationRoutes.length > 0 && (
+              <div
+                style={{
+                  marginTop: 8,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                }}
+              >
+                <input
+                  type="range"
+                  min={1}
+                  max={migrationRoutes.length}
+                  value={maxMigrationRoutes || migrationRoutes.length}
+                  onChange={(e) =>
+                    setMaxMigrationRoutes(parseInt(e.target.value))
+                  }
+                  style={{ flex: 1, accentColor: 'var(--og-accent)' }}
+                />
+                <span
+                  className="og-mono-sm"
+                  style={{ fontSize: 10, whiteSpace: 'nowrap' }}
+                >
+                  {maxMigrationRoutes || migrationRoutes.length}/
+                  {migrationRoutes.length}
                 </span>
               </div>
             )}
@@ -216,13 +423,20 @@ export function FishGlobe() {
             <div style={{ marginTop: 16 }}>
               <div className="og-section-label">Labels</div>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                {['ocean', 'sea', 'continent', 'island'].map(type => (
-                  <button key={type} type="button"
+                {['ocean', 'sea', 'continent', 'island'].map((type) => (
+                  <button
+                    key={type}
+                    type="button"
                     className={`og-chip${globe.labelTypes.includes(type) ? ' og-chip--active' : ''}`}
-                    onClick={() => globe.setLabelTypes(prev =>
-                      prev.includes(type) ? prev.filter(t => t !== type) : [...prev, type]
-                    )}
-                    style={{ fontSize: 11, textTransform: 'capitalize' }}>
+                    onClick={() =>
+                      globe.setLabelTypes((prev) =>
+                        prev.includes(type)
+                          ? prev.filter((t) => t !== type)
+                          : [...prev, type],
+                      )
+                    }
+                    style={{ fontSize: 11, textTransform: 'capitalize' }}
+                  >
                     {type}
                   </button>
                 ))}
@@ -233,10 +447,15 @@ export function FishGlobe() {
               <div className="og-section-label">Globe Skin</div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                 {Object.entries(globe.GLOBE_SKINS).map(([key, { label }]) => (
-                  <button key={key} type="button"
+                  <button
+                    key={key}
+                    type="button"
                     className={`og-chip${globe.globeSkin === key ? ' og-chip--active' : ''}`}
                     onClick={() => globe.setGlobeSkin(key)}
-                    style={{ fontSize: 11 }}>{label}</button>
+                    style={{ fontSize: 11 }}
+                  >
+                    {label}
+                  </button>
                 ))}
               </div>
             </div>
@@ -244,7 +463,7 @@ export function FishGlobe() {
         </div>
       )}
 
-      {/* ── Hover tooltip ───────────────────────────────────────────── */}
+      {/* ── Hover tooltip ───────────────────────────────────────────────── */}
       {hoveredSpecies && !selectedSpecies && (
         <div
           className="og-glass"
@@ -259,43 +478,81 @@ export function FishGlobe() {
             pointerEvents: 'none',
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 4 }}>
-            <span style={{
-              fontFamily: 'var(--og-font-body)', fontSize: 14,
-              fontWeight: 600, color: 'var(--og-text-primary)',
-            }}>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'baseline',
+              gap: 8,
+              marginBottom: 4,
+            }}
+          >
+            <span
+              style={{
+                fontFamily: 'var(--og-font-body)',
+                fontSize: 14,
+                fontWeight: 600,
+                color: 'var(--og-text-primary)',
+              }}
+            >
               {hoveredSpecies.species.nameZh || hoveredSpecies.species.name}
             </span>
             {hoveredSpecies.species.nameZh && (
-              <span style={{
-                fontFamily: 'var(--og-font-mono)', fontSize: 10,
-                color: 'var(--og-text-tertiary)', fontStyle: 'italic',
-              }}>
+              <span
+                style={{
+                  fontFamily: 'var(--og-font-mono)',
+                  fontSize: 10,
+                  color: 'var(--og-text-tertiary)',
+                  fontStyle: 'italic',
+                }}
+              >
                 {hoveredSpecies.species.name}
               </span>
             )}
           </div>
-          <div style={{
-            fontFamily: 'var(--og-font-body)', fontSize: 12,
-            color: 'var(--og-text-secondary)', lineHeight: 1.4,
-          }}>
+          <div
+            style={{
+              fontFamily: 'var(--og-font-body)',
+              fontSize: 12,
+              color: 'var(--og-text-secondary)',
+              lineHeight: 1.4,
+            }}
+          >
             {hoveredSpecies.species.tagline.en}
           </div>
-          <div style={{ marginTop: 6, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <span className="og-chip" style={{ fontSize: 9, padding: '2px 6px', textTransform: 'capitalize' }}>
+          <div
+            style={{ marginTop: 6, display: 'flex', gap: 8, flexWrap: 'wrap' }}
+          >
+            <span
+              className="og-chip"
+              style={{
+                fontSize: 9,
+                padding: '2px 6px',
+                textTransform: 'capitalize',
+              }}
+            >
               {hoveredSpecies.species.tier}
             </span>
-            <span className="og-chip" style={{ fontSize: 9, padding: '2px 6px' }}>
+            <span
+              className="og-chip"
+              style={{ fontSize: 9, padding: '2px 6px' }}
+            >
               {hoveredSpecies.species.viewingSpots.length} locations
             </span>
-            <span className="og-chip" style={{ fontSize: 9, padding: '2px 6px', textTransform: 'capitalize' }}>
+            <span
+              className="og-chip"
+              style={{
+                fontSize: 9,
+                padding: '2px 6px',
+                textTransform: 'capitalize',
+              }}
+            >
               {hoveredSpecies.species.display.animation.replace('_', ' ')}
             </span>
           </div>
         </div>
       )}
 
-      {/* ── Species detail panel (pinned on click) ──────────────────── */}
+      {/* ── Species detail panel (pinned on click) ──────────────────────── */}
       {selectedSpecies && (
         <div
           className="og-glass"
@@ -308,7 +565,8 @@ export function FishGlobe() {
             overflowY: 'auto',
             zIndex: 20,
             borderRadius: 'var(--og-radius-lg)',
-            animation: 'slideInLeft 300ms cubic-bezier(0.16, 1, 0.3, 1) forwards',
+            animation:
+              'slideInLeft 300ms cubic-bezier(0.16, 1, 0.3, 1) forwards',
           }}
         >
           <div style={{ padding: '20px' }}>
@@ -317,9 +575,15 @@ export function FishGlobe() {
               type="button"
               onClick={() => setSelectedSpecies(null)}
               style={{
-                position: 'absolute', top: 12, right: 12,
-                background: 'none', border: 'none', cursor: 'pointer',
-                color: 'var(--og-text-tertiary)', fontSize: 18, padding: '4px',
+                position: 'absolute',
+                top: 12,
+                right: 12,
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                color: 'var(--og-text-tertiary)',
+                fontSize: 18,
+                padding: '4px',
               }}
             >
               &times;
@@ -327,64 +591,115 @@ export function FishGlobe() {
 
             {/* Name */}
             <div style={{ marginBottom: 4 }}>
-              <div style={{
-                fontFamily: 'var(--og-font-display)', fontSize: 22,
-                fontWeight: 600, color: 'var(--og-text-primary)',
-              }}>
+              <div
+                style={{
+                  fontFamily: 'var(--og-font-display)',
+                  fontSize: 22,
+                  fontWeight: 600,
+                  color: 'var(--og-text-primary)',
+                }}
+              >
                 {selectedSpecies.nameZh || selectedSpecies.name}
               </div>
               {selectedSpecies.nameZh && (
-                <div style={{
-                  fontFamily: 'var(--og-font-mono)', fontSize: 12,
-                  color: 'var(--og-text-tertiary)', fontStyle: 'italic', marginTop: 2,
-                }}>
+                <div
+                  style={{
+                    fontFamily: 'var(--og-font-mono)',
+                    fontSize: 12,
+                    color: 'var(--og-text-tertiary)',
+                    fontStyle: 'italic',
+                    marginTop: 2,
+                  }}
+                >
                   {selectedSpecies.scientificName}
                 </div>
               )}
             </div>
 
             {/* Tagline */}
-            <div style={{
-              fontFamily: 'var(--og-font-body)', fontSize: 13,
-              color: 'var(--og-text-secondary)', lineHeight: 1.5,
-              marginBottom: 16,
-            }}>
+            <div
+              style={{
+                fontFamily: 'var(--og-font-body)',
+                fontSize: 13,
+                color: 'var(--og-text-secondary)',
+                lineHeight: 1.5,
+                marginBottom: 16,
+              }}
+            >
               {selectedSpecies.tagline.en}
               {selectedSpecies.tagline.zh && (
-                <div style={{ color: 'var(--og-text-tertiary)', marginTop: 4, fontSize: 12 }}>
+                <div
+                  style={{
+                    color: 'var(--og-text-tertiary)',
+                    marginTop: 4,
+                    fontSize: 12,
+                  }}
+                >
                   {selectedSpecies.tagline.zh}
                 </div>
               )}
             </div>
 
             {/* Tags */}
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 16 }}>
-              <span className="og-chip og-chip--active" style={{ fontSize: 10, padding: '3px 8px', textTransform: 'capitalize' }}>
+            <div
+              style={{
+                display: 'flex',
+                gap: 6,
+                flexWrap: 'wrap',
+                marginBottom: 16,
+              }}
+            >
+              <span
+                className="og-chip og-chip--active"
+                style={{
+                  fontSize: 10,
+                  padding: '3px 8px',
+                  textTransform: 'capitalize',
+                }}
+              >
                 {selectedSpecies.tier}
               </span>
-              <span className="og-chip" style={{ fontSize: 10, padding: '3px 8px', textTransform: 'capitalize' }}>
+              <span
+                className="og-chip"
+                style={{
+                  fontSize: 10,
+                  padding: '3px 8px',
+                  textTransform: 'capitalize',
+                }}
+              >
                 {selectedSpecies.display.scale}
               </span>
-              <span className="og-chip" style={{ fontSize: 10, padding: '3px 8px', textTransform: 'capitalize' }}>
+              <span
+                className="og-chip"
+                style={{
+                  fontSize: 10,
+                  padding: '3px 8px',
+                  textTransform: 'capitalize',
+                }}
+              >
                 {selectedSpecies.display.animation.replace('_', ' ')}
               </span>
             </div>
 
             {/* Viewing spots */}
-            <div className="og-section-label" style={{ marginBottom: 8 }}>
+            <div
+              className="og-section-label"
+              style={{ marginBottom: 8 }}
+            >
               Viewing Spots ({selectedSpecies.viewingSpots.length})
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div
+              style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
+            >
               {selectedSpecies.viewingSpots.map((spot, i) => (
                 <button
                   key={i}
                   type="button"
                   onClick={() => {
-                    if (globe.sceneRefsRef.current) {
-                      flyTo(globe.sceneRefsRef.current, spot.lat, spot.lng, {
-                        duration: 1500, zoomDistance: 150,
-                      });
-                    }
+                    globe.flyTo(spot.lat, spot.lng, {
+                      duration: 1500,
+                      zoomDistance: 150,
+                    });
                   }}
                   style={{
                     background: 'var(--og-bg-surface)',
@@ -395,23 +710,41 @@ export function FishGlobe() {
                     textAlign: 'left',
                     transition: 'border-color var(--og-transition-fast)',
                   }}
-                  onMouseEnter={(e) => (e.currentTarget.style.borderColor = 'var(--og-border-active)')}
-                  onMouseLeave={(e) => (e.currentTarget.style.borderColor = 'var(--og-border)')}
+                  onMouseEnter={(e) =>
+                    (e.currentTarget.style.borderColor =
+                      'var(--og-border-active)')
+                  }
+                  onMouseLeave={(e) =>
+                    (e.currentTarget.style.borderColor = 'var(--og-border)')
+                  }
                 >
-                  <div style={{
-                    fontFamily: 'var(--og-font-body)', fontSize: 13,
-                    color: 'var(--og-text-primary)', fontWeight: 500,
-                  }}>
+                  <div
+                    style={{
+                      fontFamily: 'var(--og-font-body)',
+                      fontSize: 13,
+                      color: 'var(--og-text-primary)',
+                      fontWeight: 500,
+                    }}
+                  >
                     {spot.name}
                   </div>
-                  <div style={{
-                    fontFamily: 'var(--og-font-mono)', fontSize: 10,
-                    color: 'var(--og-text-tertiary)', marginTop: 3,
-                    display: 'flex', gap: 8,
-                  }}>
+                  <div
+                    style={{
+                      fontFamily: 'var(--og-font-mono)',
+                      fontSize: 10,
+                      color: 'var(--og-text-tertiary)',
+                      marginTop: 3,
+                      display: 'flex',
+                      gap: 8,
+                    }}
+                  >
                     <span>{spot.season}</span>
-                    <span style={{ textTransform: 'capitalize' }}>{spot.reliability}</span>
-                    <span style={{ textTransform: 'capitalize' }}>{spot.activity.replace('_', ' ')}</span>
+                    <span style={{ textTransform: 'capitalize' }}>
+                      {spot.reliability}
+                    </span>
+                    <span style={{ textTransform: 'capitalize' }}>
+                      {spot.activity.replace('_', ' ')}
+                    </span>
                   </div>
                 </button>
               ))}
@@ -420,55 +753,106 @@ export function FishGlobe() {
         </div>
       )}
 
-      {/* ── Zoom controls ───────────────────────────────────────────── */}
+      {/* ── Zoom controls ───────────────────────────────────────────────── */}
       <ZoomControls
         onZoomIn={() => {
           const canvas = document.querySelector('#og-app canvas');
           if (canvas)
-            canvas.dispatchEvent(new WheelEvent('wheel', { deltaY: -300, bubbles: true }));
+            canvas.dispatchEvent(
+              new WheelEvent('wheel', { deltaY: -300, bubbles: true }),
+            );
         }}
         onZoomOut={() => {
           const canvas = document.querySelector('#og-app canvas');
           if (canvas)
-            canvas.dispatchEvent(new WheelEvent('wheel', { deltaY: 300, bubbles: true }));
+            canvas.dispatchEvent(
+              new WheelEvent('wheel', { deltaY: 300, bubbles: true }),
+            );
         }}
       />
 
-      {/* ── Route hover tooltip ──────────────────────────────────── */}
-      {migration.routeTooltip && (
-        <div className="og-glass" style={{
-          position: 'fixed', left: migration.routeTooltip.x + 12, top: migration.routeTooltip.y - 10,
-          zIndex: 30, padding: '8px 12px', cursor: 'pointer', maxWidth: 250,
-          borderRadius: 'var(--og-radius-sm)',
-        }}>
-          <div style={{ fontFamily: 'var(--og-font-body)', fontSize: 12, color: 'var(--og-text-primary)', fontWeight: 500 }}>
-            {migration.routeTooltip.route.name}
+      {/* ── Route hover tooltip ──────────────────────────────────────── */}
+      {routeTooltip && (
+        <div
+          className="og-glass"
+          style={{
+            position: 'fixed',
+            left: routeTooltip.x + 12,
+            top: routeTooltip.y - 10,
+            zIndex: 30,
+            padding: '8px 12px',
+            cursor: 'pointer',
+            maxWidth: 250,
+            borderRadius: 'var(--og-radius-sm)',
+          }}
+        >
+          <div
+            style={{
+              fontFamily: 'var(--og-font-body)',
+              fontSize: 12,
+              color: 'var(--og-text-primary)',
+              fontWeight: 500,
+            }}
+          >
+            {routeTooltip.route.name}
           </div>
-          <div style={{ fontFamily: 'var(--og-font-mono)', fontSize: 10, color: 'var(--og-text-tertiary)', marginTop: 2 }}>
-            {migration.routeTooltip.route.species} &middot; {migration.routeTooltip.route.type}
+          <div
+            style={{
+              fontFamily: 'var(--og-font-mono)',
+              fontSize: 10,
+              color: 'var(--og-text-tertiary)',
+              marginTop: 2,
+            }}
+          >
+            {routeTooltip.route.species} &middot; {routeTooltip.route.type}
           </div>
         </div>
       )}
 
-      {/* ── Mobile controls toggle ──────────────────────────────────── */}
-      <button onClick={() => setShowControls(v => !v)} className="og-glass md:hidden"
+      {/* ── Mobile controls toggle ──────────────────────────────────────── */}
+      <button
+        onClick={() => setShowControls((v) => !v)}
+        className="og-glass md:hidden"
         style={{
-          position: 'fixed', top: 16, left: 16, zIndex: 20, padding: '8px 16px',
-          fontFamily: 'var(--og-font-body)', color: 'var(--og-text-primary)',
-          fontSize: 11, cursor: 'pointer', background: 'transparent', border: 'none',
-        }}>
+          position: 'fixed',
+          top: 16,
+          left: 16,
+          zIndex: 20,
+          padding: '8px 16px',
+          fontFamily: 'var(--og-font-body)',
+          color: 'var(--og-text-primary)',
+          fontSize: 11,
+          cursor: 'pointer',
+          background: 'transparent',
+          border: 'none',
+        }}
+      >
         {showControls ? 'Close' : 'Controls'}
       </button>
 
-      {/* ── Attribution ─────────────────────────────────────────────── */}
-      <div id="og-attribution" style={{
-        position: 'absolute', bottom: 16, left: '50%', transform: 'translateX(-50%)',
-        zIndex: 10, display: 'flex', alignItems: 'center', gap: 6, opacity: 0.35,
-      }}>
-        <span style={{
-          fontFamily: 'var(--og-font-body)', fontSize: 10,
-          color: 'var(--og-text-tertiary)', whiteSpace: 'nowrap',
-        }}>
+      {/* ── Attribution ─────────────────────────────────────────────────── */}
+      <div
+        id="og-attribution"
+        style={{
+          position: 'absolute',
+          bottom: 16,
+          left: '50%',
+          transform: 'translateX(-50%)',
+          zIndex: 10,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+          opacity: 0.35,
+        }}
+      >
+        <span
+          style={{
+            fontFamily: 'var(--og-font-body)',
+            fontSize: 10,
+            color: 'var(--og-text-tertiary)',
+            whiteSpace: 'nowrap',
+          }}
+        >
           Data: FishBase (CC-BY-NC) &middot; OBIS (CC-BY) &middot; GBIF
         </span>
       </div>
