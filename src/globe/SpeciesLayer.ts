@@ -64,6 +64,11 @@ export class SpeciesLayer {
   /** Number of fish placed per route segment (between two waypoints). */
   static FISH_PER_SEGMENT = 4;
 
+  // Reusable vectors for hitTest (avoid per-call allocation → GC pressure)
+  private static _htProj = new THREE.Vector3();
+  private static _htCamDir = new THREE.Vector3();
+  private static _htSpriteDir = new THREE.Vector3();
+
   build(
     species: Species[],
     atlasTexture: THREE.Texture,
@@ -86,13 +91,12 @@ export class SpeciesLayer {
 
     const resolved: Resolved[] = [];
 
-    // 1. Species viewing spots (skip aquarium spots — they're inland buildings)
+    // 1. Species viewing spots
     for (const sp of species) {
       const spriteName = sp.sprite.replace('.png', '');
       const rect = manifest.sprites[spriteName];
       if (!rect) continue;
       for (const spot of sp.viewingSpots) {
-        if (spot.activity === 'aquarium') continue;
         resolved.push({ sp, spot, rect });
       }
     }
@@ -281,9 +285,9 @@ export class SpeciesLayer {
   ): Species | null {
     if (this.positions.length === 0) return null;
 
-    const _proj = new THREE.Vector3();
-    const _camDir = new THREE.Vector3();
-    const _spriteDir = new THREE.Vector3();
+    const _proj = SpeciesLayer._htProj;
+    const _camDir = SpeciesLayer._htCamDir;
+    const _spriteDir = SpeciesLayer._htSpriteDir;
     let bestDist = Infinity;
     let bestIdx = -1;
     const halfW = viewW / 2;

@@ -49,6 +49,7 @@ export class GlobeRenderer {
   readonly trailLayer: TrailLayer;
 
   private frameId = 0;
+  private frameCount = 0;
   private clock = new THREE.Clock();
   private onFrameCallbacks: ((dt: number) => void)[] = [];
   private container: HTMLElement | null = null;
@@ -112,9 +113,22 @@ export class GlobeRenderer {
   // ─── Theme ──────────────────────────────────────────────────────────────
 
   setTheme(config: GlobeThemeConfig): void {
-    // Remove old earth + atmosphere
-    if (this.earth) { this.scene.remove(this.earth); this.earth.geometry.dispose(); (this.earth.material as THREE.Material).dispose(); }
-    if (this.atmo) { this.scene.remove(this.atmo.rim); this.scene.remove(this.atmo.haze); }
+    // Remove + dispose old earth + atmosphere (prevent GPU memory leak)
+    if (this.earth) {
+      this.scene.remove(this.earth);
+      this.earth.geometry.dispose();
+      (this.earth.material as THREE.Material).dispose();
+      this.earth = null;
+    }
+    if (this.atmo) {
+      this.scene.remove(this.atmo.rim);
+      this.scene.remove(this.atmo.haze);
+      this.atmo.rim.geometry.dispose();
+      (this.atmo.rim.material as THREE.Material).dispose();
+      this.atmo.haze.geometry.dispose();
+      (this.atmo.haze.material as THREE.Material).dispose();
+      this.atmo = null;
+    }
 
     // Background
     this.scene.background = new THREE.Color(config.backgroundColor);
@@ -268,6 +282,16 @@ export class GlobeRenderer {
     for (const cb of this.onFrameCallbacks) cb(dt);
 
     this.renderer.render(this.scene, this.camera);
+
+    // Performance logging every 600 frames (~10s)
+    this.frameCount++;
+    if (this.frameCount % 600 === 0) {
+      const info = this.renderer.info;
+      console.log(
+        `[perf] frame ${this.frameCount}: geometries=${info.memory.geometries}, textures=${info.memory.textures}, programs=${info.programs?.length ?? '?'}, calls=${info.render.calls}, triangles=${info.render.triangles}, points=${info.render.points}, scene.children=${this.scene.children.length}`,
+      );
+      info.reset();
+    }
   };
 
   // ─── Resize ─────────────────────────────────────────────────────────────
