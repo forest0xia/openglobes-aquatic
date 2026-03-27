@@ -86,12 +86,13 @@ export class SpeciesLayer {
 
     const resolved: Resolved[] = [];
 
-    // 1. Species viewing spots
+    // 1. Species viewing spots (skip aquarium spots — they're inland buildings)
     for (const sp of species) {
       const spriteName = sp.sprite.replace('.png', '');
       const rect = manifest.sprites[spriteName];
       if (!rect) continue;
       for (const spot of sp.viewingSpots) {
+        if (spot.activity === 'aquarium') continue;
         resolved.push({ sp, spot, rect });
       }
     }
