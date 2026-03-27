@@ -281,12 +281,23 @@ export class SpeciesLayer {
     if (this.positions.length === 0) return null;
 
     const _proj = new THREE.Vector3();
+    const _camDir = new THREE.Vector3();
+    const _spriteDir = new THREE.Vector3();
     let bestDist = Infinity;
     let bestIdx = -1;
     const halfW = viewW / 2;
     const halfH = viewH / 2;
 
+    // Camera direction for back-face check (same logic as the shader)
+    camera.getWorldPosition(_camDir);
+    _camDir.normalize();
+
     for (let i = 0; i < this.positions.length; i++) {
+      // Back-face check: skip fish on the far side of the globe
+      _spriteDir.copy(this.positions[i]).normalize();
+      const facing = _camDir.dot(_spriteDir);
+      if (facing < 0.1) continue; // matches shader cull threshold
+
       _proj.copy(this.positions[i]);
       _proj.project(camera);
 
@@ -301,10 +312,8 @@ export class SpeciesLayer {
       const dy = sy - mouseY;
       const dist = Math.sqrt(dx * dx + dy * dy);
 
-      // Compute approximate projected size for hit radius.
-      // Project a point offset by instanceScale to estimate screen-space size.
+      // Hit radius from projected size — tighter max to avoid phantom hits
       const scale = this.scales[i] ?? 1;
-      // Rough projected size: scale / distance-to-camera * focal factor
       const camDist = camera.position.distanceTo(this.positions[i]);
       const fov =
         'fov' in camera ? (camera as THREE.PerspectiveCamera).fov : 50;
@@ -312,9 +321,10 @@ export class SpeciesLayer {
         camDist > 0
           ? (scale / camDist) *
             (viewH / (2 * Math.tan(((fov / 2) * Math.PI) / 180)))
-          : 25;
+          : 15;
 
-      const hitRadius = Math.max(25, projectedSize * 0.6);
+      // Tighter hit radius: max 20px minimum (was 25), 50% of projected size (was 60%)
+      const hitRadius = Math.max(15, Math.min(projectedSize * 0.5, 60));
 
       if (dist < hitRadius && dist < bestDist) {
         bestDist = dist;
