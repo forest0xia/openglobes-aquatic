@@ -185,7 +185,7 @@ export class GlobeRenderer {
 
     this.tgtAngle.theta -= dx * 0.004;
     this.tgtAngle.phi = Math.max(0.1, Math.min(Math.PI - 0.1,
-      this.tgtAngle.phi + dy * 0.004));
+      this.tgtAngle.phi - dy * 0.004));
   };
 
   private onPointerUp = (): void => {
