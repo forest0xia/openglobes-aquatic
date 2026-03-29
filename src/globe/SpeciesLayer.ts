@@ -176,9 +176,8 @@ export class SpeciesLayer {
       positions.push(_v.clone());
     }
 
-    // --- Collision resolution: push overlapping instances apart on the globe surface ---
-    // Multiple passes of simple pairwise repulsion. O(n²) but n ≤ 1700 and runs once.
-    const MIN_DIST = 2.5; // minimum world-unit distance between any two sprites
+    // --- Collision resolution (close positions) ---
+    const MIN_DIST_CLOSE = 2.5;
     const _push = new THREE.Vector3();
     for (let pass = 0; pass < 3; pass++) {
       for (let i = 0; i < count; i++) {
@@ -187,16 +186,38 @@ export class SpeciesLayer {
           const dy = positions[j].y - positions[i].y;
           const dz = positions[j].z - positions[i].z;
           const distSq = dx * dx + dy * dy + dz * dz;
-          if (distSq < MIN_DIST * MIN_DIST && distSq > 0.001) {
+          if (distSq < MIN_DIST_CLOSE * MIN_DIST_CLOSE && distSq > 0.001) {
             const dist = Math.sqrt(distSq);
-            const overlap = (MIN_DIST - dist) * 0.5;
-            // Push apart along the connecting vector, then re-project onto globe surface
+            const overlap = (MIN_DIST_CLOSE - dist) * 0.5;
             _push.set(dx / dist * overlap, dy / dist * overlap, dz / dist * overlap);
             positions[i].sub(_push);
             positions[j].add(_push);
-            // Re-project to globe surface (maintain altitude)
             positions[i].normalize().multiplyScalar(GLOBE_RADIUS * (1 + SPRITE_ALT));
             positions[j].normalize().multiplyScalar(GLOBE_RADIUS * (1 + SPRITE_ALT));
+          }
+        }
+      }
+    }
+
+    // --- Far positions (zoomed out — bigger spread, same direction) ---
+    // Clone close positions and apply stronger collision resolution
+    const farPositions = positions.map(p => p.clone());
+    const MIN_DIST_FAR = 8.0; // much more spread out
+    for (let pass = 0; pass < 5; pass++) {
+      for (let i = 0; i < count; i++) {
+        for (let j = i + 1; j < count; j++) {
+          const dx = farPositions[j].x - farPositions[i].x;
+          const dy = farPositions[j].y - farPositions[i].y;
+          const dz = farPositions[j].z - farPositions[i].z;
+          const distSq = dx * dx + dy * dy + dz * dz;
+          if (distSq < MIN_DIST_FAR * MIN_DIST_FAR && distSq > 0.001) {
+            const dist = Math.sqrt(distSq);
+            const overlap = (MIN_DIST_FAR - dist) * 0.5;
+            _push.set(dx / dist * overlap, dy / dist * overlap, dz / dist * overlap);
+            farPositions[i].sub(_push);
+            farPositions[j].add(_push);
+            farPositions[i].normalize().multiplyScalar(GLOBE_RADIUS * (1 + SPRITE_ALT + 0.02));
+            farPositions[j].normalize().multiplyScalar(GLOBE_RADIUS * (1 + SPRITE_ALT + 0.02));
           }
         }
       }
@@ -206,13 +227,13 @@ export class SpeciesLayer {
     const geometry = new THREE.PlaneGeometry(1, 1);
 
     // --- Instance attributes -------------------------------------------------
-    const posArr = new Float32Array(count * 3);
+    const posArr = new Float32Array(count * 3);    // close position
+    const posFarArr = new Float32Array(count * 3); // far position
     const uvArr = new Float32Array(count * 4);
     const phaseArr = new Float32Array(count);
     const animArr = new Float32Array(count);
     const sizeArr = new Float32Array(count * 2);
     const colorArr = new Float32Array(count * 3);
-    const spreadArr = new Float32Array(count * 3); // pre-computed spread direction (world space)
 
     this.speciesRefs = [];
     this.spotRefs = [];
@@ -223,9 +244,14 @@ export class SpeciesLayer {
       const { sp, spot, rect } = resolved[i];
       const pos = positions[i];
 
+      const farPos = farPositions[i];
+
       posArr[i * 3] = pos.x;
       posArr[i * 3 + 1] = pos.y;
       posArr[i * 3 + 2] = pos.z;
+      posFarArr[i * 3] = farPos.x;
+      posFarArr[i * 3 + 1] = farPos.y;
+      posFarArr[i * 3 + 2] = farPos.z;
       this.positions.push(pos);
 
       // UV rect (normalized to sheet)
@@ -260,24 +286,6 @@ export class SpeciesLayer {
       colorArr[i * 3 + 1] = g;
       colorArr[i * 3 + 2] = b;
 
-      // Pre-compute a fixed spread direction on the globe surface.
-      // Uses deterministic hash so direction is always the same per instance.
-      const normal = pos.clone().normalize();
-      const tangent = new THREE.Vector3(0, 1, 0).cross(normal);
-      if (tangent.lengthSq() < 0.001) tangent.set(1, 0, 0).cross(normal);
-      tangent.normalize();
-      const bitangent = normal.clone().cross(tangent).normalize();
-      const seed = phaseArr[i];
-      const hashA = Math.sin(seed * 127.1) * 43758.5453 % 1;
-      const hashB = Math.sin(seed * 269.5) * 43758.5453 % 1;
-      const hashC = Math.sin(seed * 419.2) * 43758.5453 % 1;
-      const spreadDir = tangent.multiplyScalar((hashA - 0.5) * 8)
-        .add(bitangent.multiplyScalar((hashB - 0.5) * 8))
-        .add(normal.multiplyScalar(Math.abs(hashC) * 3));
-      spreadArr[i * 3] = spreadDir.x;
-      spreadArr[i * 3 + 1] = spreadDir.y;
-      spreadArr[i * 3 + 2] = spreadDir.z;
-
       this.speciesRefs.push(sp);
       this.spotRefs.push({ lat: spot.lat, lng: spot.lng });
     }
@@ -308,8 +316,8 @@ export class SpeciesLayer {
       new THREE.InstancedBufferAttribute(colorArr, 3),
     );
     geometry.setAttribute(
-      'instanceSpread',
-      new THREE.InstancedBufferAttribute(spreadArr, 3),
+      'instancePosFar',
+      new THREE.InstancedBufferAttribute(posFarArr, 3),
     );
 
     // --- Material ------------------------------------------------------------
