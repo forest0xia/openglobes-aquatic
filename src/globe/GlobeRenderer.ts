@@ -91,13 +91,16 @@ export class GlobeRenderer {
 
   // ─── Mount ──────────────────────────────────────────────────────────────
 
+  private mounted = false;
+
   mount(container: HTMLElement): void {
+    if (this.mounted) return; // prevent double-mount (React StrictMode)
+    this.mounted = true;
     this.container = container;
     container.appendChild(this.renderer.domElement);
     this.handleResize();
     window.addEventListener('resize', this.handleResize);
 
-    // Pointer events for custom camera
     const el = this.renderer.domElement;
     el.addEventListener('pointerdown', this.onPointerDown);
     el.addEventListener('pointermove', this.onPointerMove);

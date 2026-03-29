@@ -15,6 +15,8 @@ import { OCEAN_CURRENTS, CURRENTS_DEFAULT_VISIBLE } from '../data/currents';
 import { GLOBE_RADIUS } from '../globe/coordUtils';
 import type { TrailData } from '../globe/TrailLayer';
 
+const _hitPoint = new THREE.Vector3(); // reusable for route hover ray hit
+
 // ---------------------------------------------------------------------------
 // FishGlobe — main application shell.
 //
@@ -188,7 +190,7 @@ export function FishGlobe() {
         return;
       }
 
-      const hp = origin.clone().addScaledVector(dir, t);
+      const hp = _hitPoint.copy(origin).addScaledVector(dir, t);
       const rr = Math.sqrt(hp.x ** 2 + hp.y ** 2 + hp.z ** 2);
       const hitLat = Math.asin(hp.y / rr) * (180 / Math.PI);
       const hitLng = Math.atan2(hp.x, hp.z) * (180 / Math.PI);
