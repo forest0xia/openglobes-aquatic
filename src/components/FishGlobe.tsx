@@ -315,7 +315,7 @@ export function FishGlobe() {
           const idx = globe.renderer.speciesLayer.findInstanceIndex(hit.species, hit.lat, hit.lng);
           globe.renderer.speciesLayer.setHighlight(idx);
         }
-        globe.flyTo(hit.lat, hit.lng, { duration: 1500, zoomDistance: 180 });
+        globe.flyTo(hit.lat, hit.lng, { duration: 1500, zoomDistance: 140 });
       }
     },
     [findHitAtCursor, globe],
@@ -641,7 +641,7 @@ export function FishGlobe() {
                   onClick={() => {
                     globe.flyTo(spot.lat, spot.lng, {
                       duration: 1500,
-                      zoomDistance: 150,
+                      zoomDistance: 130,
                     });
                   }}
                   style={{
