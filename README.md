@@ -1,111 +1,103 @@
-# AquaticGlobe
+# 深海探索 AquaticGlobe
 
-Interactive 3D globe with 200 curated aquatic species swimming across
-the world's oceans — not icons pinned to a map, but living creatures
-drifting through the deep.
+全球海洋生物3D互动地球 — 228种海洋生物在深海中游动，不是地图上的图标，而是活的生命。
 
 **Live:** [aquatic.openglobes.com](https://aquatic.openglobes.com)
 
 Part of [OpenGlobes](https://openglobes.com) — open-source 3D data globe visualizations.
 
-## Development (local)
+## Development
 
 ```bash
-# Clone sibling repos if not present
-# ../openglobes-core — shared globe engine
-# ../openglobes-etl  — data pipeline (has pre-generated output)
-
-# Symlink data from ETL output (do NOT copy — keeps in sync)
+# Symlink data from ETL output
 ln -s ../openglobes-etl/output/aquatic data
 
-# Install deps (file: link resolves to sibling core)
+# Install and run (plain Vite + React, no Astro)
 pnpm install
-
-# Build core first if not already built
-cd ../openglobes-core && pnpm build && cd ../openglobes-aquatic
-
-# Run dev server
 pnpm dev
 ```
 
-## Production
-
-Deployed automatically via GitHub Actions — the workflow clones the ETL repo at
-build time and deploys to GitHub Pages. See `.github/workflows/deploy.yml`.
-
 ## Architecture
+
+### Rendering (plain Three.js, no three-globe)
+
+Custom rendering stack in `src/globe/`:
+
+| File | Purpose |
+|------|---------|
+| `GlobeRenderer.ts` | Scene, camera (custom spherical + exponential damping), single RAF loop, ACES tone mapping |
+| `EarthMesh.ts` | Textured sphere with bump/specular maps |
+| `AtmosphereShader.ts` | Dual-layer fresnel glow (BackSide rim + FrontSide haze) |
+| `SpeciesLayer.ts` | Single `InstancedMesh` for all ~1900 species sprites (1 draw call) |
+| `SpeciesShader.ts` | GLSL: billboard, 5 swim animations, body wave, bioluminescent glow |
+| `TrailLayer.ts` | Line2 animated migration trails |
+| `coordUtils.ts` | lat/lng → Three.js Vector3 (matches SphereGeometry UV) |
 
 ### Data model
 
-All data lives in two small JSON files loaded once on startup (~270KB total):
+Two JSON files loaded once (~300KB total):
 
-- **`data/final.json`** — 200 curated species, each with tier (star/ecosystem/surprise),
-  bilingual names, display config (animation style, scale, color), and 2–8 viewing spots
-  with lat/lng, season, reliability, and activity type.
-- **`data/hotspots.json`** — 25 famous marine locations (Great Barrier Reef, Galapagos, etc.)
+- **`final.json`** — 228 species (50 star / 80 ecosystem / 70 surprise + 14 corals / 14 anemones+sponges), 1000+ viewing spots, bilingual names (中文/English), display config
+- **`hotspots.json`** — 25 marine hotspots
+- **`migration_routes.json`** — 81 migration corridors with Chinese names + descriptions
 
-No spatial tiles, no zoom-level switching, no cluster logic. The entire dataset is in memory.
+### Species rendering
 
-### Sprite rendering
+All species in ONE `InstancedMesh` (~1900 instances, 1 draw call):
 
-Each species is rendered as a transparent PNG billboard (`data/sprites/sp-{name}.png`).
-Sprites are placed at each viewing spot (~700 total) and animated based on `display.animation`:
+| Feature | Implementation |
+|---------|---------------|
+| Position | True geographic lat/lng, never offset |
+| Animation | 5 types in vertex shader: `slow_cruise`, `schooling`, `hovering`, `drifting`, `darting` |
+| Body wave | Sinusoidal S-curve along spine (amplitude: head=0, tail=0.35) |
+| Bioluminescence | Per-instance glow color, radiant halo (1.8x quad), coral fluorescence |
+| Corals | `static` animation, fluorescent colors (电绿/热粉/亮橙/紫蓝), `tiny` scale |
+| Spritesheet | Single atlas (~3MB WebP), UV per-instance |
+| Highlight | Smooth ease-out cubic scale animation on hover/click |
 
-| Animation | Behavior |
-|-----------|----------|
-| `slow_cruise` | Gentle forward drift + lateral sway |
-| `schooling` | Tight group motion |
-| `hovering` | Subtle vertical bob (seahorses, reef fish) |
-| `drifting` | Lazy drift (jellyfish, plankton) |
-| `darting` | Quick bursts with pauses |
+### UI (Chinese-first)
 
-Sprites use `sizeAttenuation: false` — they render at their actual PNG pixel dimensions
-regardless of zoom level. The PNGs are pre-sized proportional to real-world animal size.
-
-### Loading
-
-A pure-HTML loading screen renders before any JS executes:
-- Progress bar tracking scene init + species data + first sprite textures
-- Fades out when ready
+- All labels, tooltips, species names in Chinese
+- Hover tooltip: DOM-managed (zero React re-renders)
+- Detail panel: species info + clickable viewing spots
+- Controls: 图层叠加, 地理标签, 地球贴图, 夜间模式
 
 ### Performance
 
-- **No tiles, no spatial index** — 270KB of JSON loaded once, held in memory
-- **No sprite pool** — all ~700 sprites created once, never reshuffled
-- **Concurrency-limited texture loading** — max 8 PNG fetches in-flight
-- **Back-face culling** — sprites behind the globe horizon are hidden per-frame
-- **Precomputed tangent vectors** — swim animation is pure arithmetic, zero `getCoords` per frame
-- **Code splitting** — FishDetail loaded lazily on click
-- **Lazy search index** — `search.json` deferred until user focuses search bar
-
-## Theming
-
-Runtime theme switching via Night Mode toggle. Styling flows through CSS custom properties.
-
-To add a theme:
-1. Create `src/themes/{name}.ts` — export a `GlobeTheme` object
-2. Add `[data-theme="{name}"]` overrides in `src/styles/tokens.css`
-3. Register in `src/themes/index.ts`
+- **1 draw call** for all species (InstancedMesh)
+- **Custom camera** with split exponential damping (rotation instant, zoom smooth)
+- **Zero React re-renders** on hover (DOM-managed tooltips)
+- **Tab visibility pause** — stops RAF when tab hidden
+- **Drag skip** — no hit-testing during globe rotation
+- **No three-globe** — removed heavy dependency (~220KB + d3 + internal RAF loop)
+- **No Astro** — plain Vite + React (~1s dev cold start)
 
 ## Data
 
 Symlinked from `../openglobes-etl/output/aquatic/` — never committed to this repo.
 
-| File | Size | Contents |
-|------|------|----------|
-| `final.json` | ~270KB | 200 species with viewing spots, display config, bilingual names |
-| `hotspots.json` | ~6KB | 25 marine hotspots with coordinates |
-| `sprites/sp-{name}.png` | ~48MB total | 179 photorealistic transparent PNGs |
-| `sprites/manifest.json` | ~50KB | Sprite registry (body type, group, scientific name) |
-| `search.json` | ~500KB | Species list for fuzzy search |
-| `migration_routes.json` | ~30KB | 30 migration corridors |
+| File | Contents |
+|------|----------|
+| `final.json` | 228 species, 1000+ viewing spots, Chinese names |
+| `hotspots.json` | 25 marine hotspots |
+| `sprites/spritesheet-0.webp` | 450 species sprites in one atlas (~3MB) |
+| `sprites/spritesheet.json` | Atlas manifest (UV coordinates) |
+| `search.json` | Search index (Chinese + English) |
+| `migration_routes.json` | 81 migration corridors |
+
+## Tech stack
+
+- **Vite** + **React 19** + **TypeScript**
+- **Three.js 0.183** (direct, no wrappers)
+- **Custom GLSL shaders** (species billboard + glow)
+- **Tailwind 4** for UI styling
 
 ## Data sources
 
-- [OBIS](https://obis.org) (CC-BY 4.0) — occurrence data
-- [FishBase](https://www.fishbase.se) (CC-BY-NC 4.0) — species metadata, images, Chinese names
+- [OBIS](https://obis.org) (CC-BY 4.0)
+- [FishBase](https://www.fishbase.se) (CC-BY-NC 4.0)
 - [GBIF](https://www.gbif.org) (CC0 / CC-BY 4.0)
 
 ## License
 
-Code: AGPL-3.0. Data: inherits source licenses — see attribution in species files.
+Code: AGPL-3.0. Data: inherits source licenses.
