@@ -188,8 +188,10 @@ export function useGlobe() {
               sheetUrl,
               (tex) => {
                 tex.colorSpace = THREE.SRGBColorSpace;
-                tex.minFilter = THREE.LinearFilter;
+                tex.generateMipmaps = true;
+                tex.minFilter = THREE.LinearMipmapLinearFilter; // smooth when small
                 tex.magFilter = THREE.LinearFilter;
+                tex.anisotropy = 4; // sharper at angles
                 // Spritesheet manifest uses Y=0 at top (image packing convention).
                 // Three.js defaults flipY=true which inverts the Y axis.
                 // Disable flip so UV coordinates match the manifest.

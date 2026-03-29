@@ -108,8 +108,9 @@ export const speciesVertexShader = `
 
     gl_Position = projectionMatrix * mvPos;
 
-    // UV
-    vec2 quadUV = vec2(position.x + 0.5, position.y + 0.5);
+    // UV — flip Y so sprites render right-side-up
+    // (quad Y goes bottom-to-top, but spritesheet Y goes top-to-bottom with flipY=false)
+    vec2 quadUV = vec2(position.x + 0.5, 0.5 - position.y);
     vUV = instanceUV.xy + quadUV * instanceUV.zw;
   }
 `;
