@@ -266,6 +266,8 @@ export class SpeciesLayer {
     this.mesh.instanceMatrix.needsUpdate = true;
 
     this.scene.add(this.mesh);
+    console.log(`[SpeciesLayer] built ${count} instances from ${species.length} species` +
+      (migrationRoutes ? ` + ${migrationRoutes.length} routes` : ''));
   }
 
   // -------------------------------------------------------------------------
