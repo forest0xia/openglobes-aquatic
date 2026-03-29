@@ -168,6 +168,40 @@ export class SpeciesLayer {
     const count = resolved.length;
     if (count === 0) return;
 
+    // --- Compute initial world positions ---
+    const positions: THREE.Vector3[] = [];
+    const _v = new THREE.Vector3();
+    for (let i = 0; i < count; i++) {
+      latLngToVec3(resolved[i].spot.lat, resolved[i].spot.lng, GLOBE_RADIUS, SPRITE_ALT, _v);
+      positions.push(_v.clone());
+    }
+
+    // --- Collision resolution: push overlapping instances apart on the globe surface ---
+    // Multiple passes of simple pairwise repulsion. O(n²) but n ≤ 1700 and runs once.
+    const MIN_DIST = 2.5; // minimum world-unit distance between any two sprites
+    const _push = new THREE.Vector3();
+    for (let pass = 0; pass < 3; pass++) {
+      for (let i = 0; i < count; i++) {
+        for (let j = i + 1; j < count; j++) {
+          const dx = positions[j].x - positions[i].x;
+          const dy = positions[j].y - positions[i].y;
+          const dz = positions[j].z - positions[i].z;
+          const distSq = dx * dx + dy * dy + dz * dz;
+          if (distSq < MIN_DIST * MIN_DIST && distSq > 0.001) {
+            const dist = Math.sqrt(distSq);
+            const overlap = (MIN_DIST - dist) * 0.5;
+            // Push apart along the connecting vector, then re-project onto globe surface
+            _push.set(dx / dist * overlap, dy / dist * overlap, dz / dist * overlap);
+            positions[i].sub(_push);
+            positions[j].add(_push);
+            // Re-project to globe surface (maintain altitude)
+            positions[i].normalize().multiplyScalar(GLOBE_RADIUS * (1 + SPRITE_ALT));
+            positions[j].normalize().multiplyScalar(GLOBE_RADIUS * (1 + SPRITE_ALT));
+          }
+        }
+      }
+    }
+
     // --- Geometry (unit quad) ------------------------------------------------
     const geometry = new THREE.PlaneGeometry(1, 1);
 
@@ -176,24 +210,21 @@ export class SpeciesLayer {
     const uvArr = new Float32Array(count * 4);
     const phaseArr = new Float32Array(count);
     const animArr = new Float32Array(count);
-    const sizeArr = new Float32Array(count * 2); // width, height per instance
+    const sizeArr = new Float32Array(count * 2);
 
     this.speciesRefs = [];
     this.spotRefs = [];
     this.positions = [];
     this.scales = [];
 
-    const _v = new THREE.Vector3();
-
     for (let i = 0; i < count; i++) {
       const { sp, spot, rect } = resolved[i];
+      const pos = positions[i];
 
-      // World position
-      latLngToVec3(spot.lat, spot.lng, GLOBE_RADIUS, SPRITE_ALT, _v);
-      posArr[i * 3] = _v.x;
-      posArr[i * 3 + 1] = _v.y;
-      posArr[i * 3 + 2] = _v.z;
-      this.positions.push(_v.clone());
+      posArr[i * 3] = pos.x;
+      posArr[i * 3 + 1] = pos.y;
+      posArr[i * 3 + 2] = pos.z;
+      this.positions.push(pos);
 
       // UV rect (normalized to sheet)
       uvArr[i * 4] = rect.x / sheetWidth;
