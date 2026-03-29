@@ -211,7 +211,8 @@ export class SpeciesLayer {
     const phaseArr = new Float32Array(count);
     const animArr = new Float32Array(count);
     const sizeArr = new Float32Array(count * 2);
-    const colorArr = new Float32Array(count * 3); // RGB glow color per instance
+    const colorArr = new Float32Array(count * 3);
+    const spreadArr = new Float32Array(count * 3); // pre-computed spread direction (world space)
 
     this.speciesRefs = [];
     this.spotRefs = [];
@@ -259,6 +260,24 @@ export class SpeciesLayer {
       colorArr[i * 3 + 1] = g;
       colorArr[i * 3 + 2] = b;
 
+      // Pre-compute a fixed spread direction on the globe surface.
+      // Uses deterministic hash so direction is always the same per instance.
+      const normal = pos.clone().normalize();
+      const tangent = new THREE.Vector3(0, 1, 0).cross(normal);
+      if (tangent.lengthSq() < 0.001) tangent.set(1, 0, 0).cross(normal);
+      tangent.normalize();
+      const bitangent = normal.clone().cross(tangent).normalize();
+      const seed = phaseArr[i];
+      const hashA = Math.sin(seed * 127.1) * 43758.5453 % 1;
+      const hashB = Math.sin(seed * 269.5) * 43758.5453 % 1;
+      const hashC = Math.sin(seed * 419.2) * 43758.5453 % 1;
+      const spreadDir = tangent.multiplyScalar((hashA - 0.5) * 8)
+        .add(bitangent.multiplyScalar((hashB - 0.5) * 8))
+        .add(normal.multiplyScalar(Math.abs(hashC) * 3));
+      spreadArr[i * 3] = spreadDir.x;
+      spreadArr[i * 3 + 1] = spreadDir.y;
+      spreadArr[i * 3 + 2] = spreadDir.z;
+
       this.speciesRefs.push(sp);
       this.spotRefs.push({ lat: spot.lat, lng: spot.lng });
     }
@@ -287,6 +306,10 @@ export class SpeciesLayer {
     geometry.setAttribute(
       'instanceColor',
       new THREE.InstancedBufferAttribute(colorArr, 3),
+    );
+    geometry.setAttribute(
+      'instanceSpread',
+      new THREE.InstancedBufferAttribute(spreadArr, 3),
     );
 
     // --- Material ------------------------------------------------------------

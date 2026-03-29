@@ -1,14 +1,9 @@
 // ---------------------------------------------------------------------------
-// SpeciesShader — GLSL for instanced species sprite billboards.
+// SpeciesShader — instanced sprite billboards with bioluminescent glow.
 //
-// Features:
-// - Billboard with per-instance width/height (aspect ratio correct)
-// - 5 animation types for swimming displacement
-// - Fish body S-wave along spine
-// - Bioluminescence glow per species color
-// - Zoom-aware spread + minimum size
-// - Smooth highlight scale
-// - Back-face fade
+// The quad is 2x the sprite size. The inner region (|position.xy| < 0.25)
+// renders the texture. The outer ring renders a colored glow halo that
+// fades with distance — this creates the "light radiating outward" effect.
 // ---------------------------------------------------------------------------
 
 export const speciesVertexShader = `
@@ -17,7 +12,8 @@ export const speciesVertexShader = `
   attribute float instancePhase;
   attribute float instanceAnim;
   attribute vec2 instanceSize;
-  attribute vec3 instanceColor;     // species display color → glow tint
+  attribute vec3 instanceColor;
+  attribute vec3 instanceSpread;    // pre-computed spread direction (tangent-space)
 
   uniform float uTime;
   uniform vec3 uCamPos;
@@ -25,12 +21,11 @@ export const speciesVertexShader = `
   uniform float uHighlightScale;
 
   varying vec2 vUV;
+  varying vec2 vQuadPos;             // raw quad position for glow calculation
   varying float vAlpha;
   varying vec3 vGlowColor;
-  varying float vGlowStrength;      // 0=none, 1=full fluorescence
+  varying float vGlowStrength;
   varying float vAnimType;
-
-  float hash(float n) { return fract(sin(n * 127.1) * 43758.5453); }
 
   void main() {
     vec3 pos = instancePos;
@@ -44,33 +39,25 @@ export const speciesVertexShader = `
       return;
     }
 
-    // Pass glow data to fragment
     vGlowColor = instanceColor;
     vAnimType = instanceAnim;
-    // Glow strength: static species (coral) glow strongest, drifting (jellyfish) medium, others subtle
     float anim = instanceAnim;
+
+    // Glow strength by type
     if (anim < 0.5) {
-      vGlowStrength = 0.6; // static: strong fluorescence
+      vGlowStrength = 0.8;  // coral: strong fluorescence
     } else if (anim > 2.5 && anim < 3.5) {
-      vGlowStrength = 0.4; // drifting: ethereal glow
+      vGlowStrength = 0.5;  // jellyfish: ethereal
     } else {
-      vGlowStrength = 0.15; // swimming fish: subtle bioluminescence
+      vGlowStrength = 0.25; // fish: subtle
     }
 
-    // ── Zoom-aware spread ──────────────────────────────────────────
+    // ── Zoom-aware spread (consistent direction from instanceSpread) ──
     float camDist = length(uCamPos);
     float spreadFactor = smoothstep(140.0, 300.0, camDist);
     if (spreadFactor > 0.001) {
-      float idx = instancePhase;
-      vec3 nrm = normalize(pos);
-      vec3 tan = normalize(cross(vec3(0.0, 1.0, 0.0), nrm));
-      if (length(tan) < 0.001) tan = normalize(cross(vec3(1.0, 0.0, 0.0), nrm));
-      vec3 btn = cross(nrm, tan);
-      float spreadStrength = 8.0 * spreadFactor;
-      float outStrength = 3.0 * spreadFactor;
-      pos += tan * (hash(idx) - 0.5) * spreadStrength
-           + btn * (hash(idx * 2.0) - 0.5) * spreadStrength
-           + nrm * hash(idx * 3.0) * outStrength;
+      // instanceSpread is a pre-computed direction in world space
+      pos += instanceSpread * spreadFactor;
     }
 
     // ── Swimming displacement ──────────────────────────────────────
@@ -102,14 +89,17 @@ export const speciesVertexShader = `
     float minSize = 0.4 + smoothstep(150.0, 400.0, camDist) * 0.8;
     size = max(size, vec2(minSize));
 
-    // Highlight scale
+    // Highlight
     if (uHighlightIdx >= 0 && gl_InstanceID == uHighlightIdx) {
       size *= uHighlightScale;
       vAlpha = min(vAlpha + 0.15, 1.0);
-      vGlowStrength = min(vGlowStrength + 0.3, 1.0); // highlighted = brighter glow
+      vGlowStrength = min(vGlowStrength + 0.4, 1.0);
     }
 
-    // ── Fish body wave ─────────────────────────────────────────────
+    // Expand quad 2x for glow halo (texture only in inner 50%)
+    vec2 glowSize = size * 2.0;
+
+    // Body wave (fish only)
     float bodyWave = 0.0;
     if (anim > 0.5) {
       float bodyX = position.x;
@@ -118,14 +108,19 @@ export const speciesVertexShader = `
       bodyWave = sin(bodyX * 6.28 - t * waveSpeed) * amp;
     }
 
-    mvPos.x += position.x * size.x;
-    mvPos.y += position.y * size.y + bodyWave * size.y;
+    vQuadPos = position.xy; // -0.5 to 0.5
+
+    mvPos.x += position.x * glowSize.x;
+    mvPos.y += position.y * glowSize.y + bodyWave * size.y;
 
     gl_Position = projectionMatrix * mvPos;
 
-    // UV
-    vec2 quadUV = vec2(position.x + 0.5, 0.5 - position.y);
-    vUV = instanceUV.xy + quadUV * instanceUV.zw;
+    // UV — map inner 50% of quad to texture, outer 50% is glow-only
+    vec2 innerUV = (position.xy * 2.0); // remap: -0.5..0.5 → -1..1
+    innerUV = innerUV * 0.5 + 0.5;      // → 0..1
+    // Flip Y for spritesheet
+    innerUV.y = 1.0 - innerUV.y;
+    vUV = instanceUV.xy + innerUV * instanceUV.zw;
   }
 `;
 
@@ -134,51 +129,55 @@ export const speciesFragmentShader = `
   uniform float uTime;
 
   varying vec2 vUV;
+  varying vec2 vQuadPos;
   varying float vAlpha;
   varying vec3 vGlowColor;
   varying float vGlowStrength;
   varying float vAnimType;
 
   void main() {
+    // Distance from center of quad (0 at center, 0.5 at texture edge, 0.707 at corner)
+    float dist = length(vQuadPos);
+
+    // Texture is in the inner region (|xy| < 0.25 maps to full texture)
     vec4 texel = texture2D(uAtlas, vUV);
-    if (texel.a < 0.05) discard;
 
-    vec3 color = texel.rgb;
-
-    // ── Bioluminescence glow ─────────────────────────────────────
-    // Pulse: subtle breathing rhythm unique per species (via vGlowColor hash)
+    // Pulse
     float pulse = 0.7 + 0.3 * sin(uTime * 1.5 + vGlowColor.r * 20.0 + vGlowColor.g * 30.0);
+    float glowIntensity = vGlowStrength * pulse;
 
-    // Glow intensity based on species type
-    float glow = vGlowStrength * pulse;
+    // ── Outer glow halo (beyond texture body) ────────────────────
+    // Radial falloff from body edge
+    float haloFalloff = 1.0 - smoothstep(0.15, 0.5, dist);
+    float halo = haloFalloff * glowIntensity * 0.6;
 
-    // Edge glow: stronger near sprite edges (where alpha is lower)
-    float edgeFactor = 1.0 - smoothstep(0.1, 0.6, texel.a);
-    float edgeGlow = edgeFactor * glow * 0.8;
+    // Inner body region: show texture + subtle glow tint
+    if (dist < 0.25 && texel.a > 0.05) {
+      vec3 color = texel.rgb;
+      // Body glow: additive color
+      color += vGlowColor * glowIntensity * 0.25;
+      // Edge enhancement within body
+      float bodyEdge = 1.0 - smoothstep(0.05, 0.4, texel.a);
+      color += vGlowColor * bodyEdge * glowIntensity * 0.5;
+      color *= 1.0 + glowIntensity * 0.15;
 
-    // Inner body glow: subtle tint throughout the body
-    float bodyGlow = glow * 0.3;
-
-    // Combine: additive glow color on top of texture
-    color += vGlowColor * (bodyGlow + edgeGlow);
-
-    // Slight brightness boost for glowing species
-    color *= 1.0 + glow * 0.2;
-
-    // For static species (coral), add extra fluorescent saturation
-    if (vAnimType < 0.5) {
-      // Coral fluorescence: boost the glow color channel
-      color = mix(color, vGlowColor * 1.5, edgeGlow * 0.4);
-      color *= 1.0 + pulse * 0.15; // breathing brightness
+      gl_FragColor = vec4(color, texel.a * vAlpha);
     }
+    // Outer glow region: pure colored light
+    else if (halo > 0.01) {
+      // Soft radial glow
+      vec3 glowColor = vGlowColor * halo;
 
-    // For drifting (jellyfish): ethereal translucent glow
-    if (vAnimType > 2.5 && vAnimType < 3.5) {
-      float ethereal = 0.15 + 0.1 * sin(uTime * 2.0 + vGlowColor.b * 40.0);
-      color += vGlowColor * ethereal;
+      // For corals: extra bright fluorescent glow
+      if (vAnimType < 0.5) {
+        glowColor *= 1.5;
+      }
+
+      gl_FragColor = vec4(glowColor, halo * vAlpha * 0.8);
     }
-
-    gl_FragColor = vec4(color, texel.a * vAlpha);
+    else {
+      discard;
+    }
   }
 `;
 
