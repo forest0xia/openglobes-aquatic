@@ -41,6 +41,8 @@ export class SpeciesLayer {
   private material: THREE.ShaderMaterial | null = null;
   /** Index i corresponds to instance i — used by hitTest to return the Species. */
   private speciesRefs: Species[] = [];
+  /** Lat/lng of each instance for flyTo. */
+  private spotRefs: { lat: number; lng: number }[] = [];
   /** Cached world positions for hit testing (one per instance). */
   private positions: THREE.Vector3[] = [];
   /** Cached instance scales for hit-test radius calculation. */
@@ -103,19 +105,33 @@ export class SpeciesLayer {
 
     // 2. Migration route fish — place sprites along each route path
     if (migrationRoutes) {
+      // Build name lookup from species list for Chinese names
+      const nameMap = new Map<string, { nameZh: string; taglineZh: string }>();
+      for (const sp of species) {
+        nameMap.set(sp.scientificName.toLowerCase(), {
+          nameZh: sp.nameZh,
+          taglineZh: sp.tagline.zh,
+        });
+      }
+
       for (const route of migrationRoutes) {
         const sci = route.species.toLowerCase().replace(/ /g, '_');
         const spriteKey = `sp-${sci}`;
         const rect = manifest.sprites[spriteKey];
         if (!rect) continue;
 
-        // Create a pseudo-Species for hit test / tooltip
+        // Look up Chinese name from species data
+        const match = nameMap.get(route.species.toLowerCase());
+
         const routeSpecies: Species = {
           aphiaId: 0,
           tier: 'ecosystem',
           name: route.species,
-          nameZh: '',
-          tagline: { en: route.description || route.name, zh: '' },
+          nameZh: match?.nameZh || '',
+          tagline: {
+            en: route.description || route.name,
+            zh: match?.taglineZh || '',
+          },
           scientificName: route.species,
           sprite: `${spriteKey}.png`,
           display: { color: '#4cc9f0', animation: 'slow_cruise', scale: 'small' },
@@ -155,6 +171,7 @@ export class SpeciesLayer {
     const sizeArr = new Float32Array(count * 2); // width, height per instance
 
     this.speciesRefs = [];
+    this.spotRefs = [];
     this.positions = [];
     this.scales = [];
 
@@ -194,6 +211,7 @@ export class SpeciesLayer {
       this.scales.push(Math.max(worldW, worldH));
 
       this.speciesRefs.push(sp);
+      this.spotRefs.push({ lat: spot.lat, lng: spot.lng });
     }
 
     // Attach instanced attributes to geometry
@@ -274,7 +292,7 @@ export class SpeciesLayer {
    * @param mouseY  Cursor y in pixels (0 = top edge)
    * @param viewW   Viewport width in pixels
    * @param viewH   Viewport height in pixels
-   * @returns The Species under the cursor, or null
+   * @returns The Species + location under the cursor, or null
    */
   hitTest(
     camera: THREE.Camera,
@@ -282,7 +300,7 @@ export class SpeciesLayer {
     mouseY: number,
     viewW: number,
     viewH: number,
-  ): Species | null {
+  ): { species: Species; lat: number; lng: number } | null {
     if (this.positions.length === 0) return null;
 
     const _proj = SpeciesLayer._htProj;
@@ -337,7 +355,9 @@ export class SpeciesLayer {
       }
     }
 
-    return bestIdx >= 0 ? this.speciesRefs[bestIdx] : null;
+    if (bestIdx < 0) return null;
+    const spot = this.spotRefs[bestIdx];
+    return { species: this.speciesRefs[bestIdx], lat: spot.lat, lng: spot.lng };
   }
 
   // -------------------------------------------------------------------------
@@ -355,6 +375,7 @@ export class SpeciesLayer {
       this.material = null;
     }
     this.speciesRefs = [];
+    this.spotRefs = [];
     this.positions = [];
     this.scales = [];
   }

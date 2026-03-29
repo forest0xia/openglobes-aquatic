@@ -95,18 +95,16 @@ export function FishGlobe() {
     migrationRoutes,
   ]);
 
-  // ── Hit testing — find species at cursor ────────────────────────────────
-  const findSpeciesAtCursor = useCallback(
-    (clientX: number, clientY: number): Species | null => {
+  // ── Hit testing — find species + location at cursor ─────────────────────
+  const findHitAtCursor = useCallback(
+    (clientX: number, clientY: number): { species: Species; lat: number; lng: number } | null => {
       if (!globe.renderer) return null;
       const r = globe.renderer.getRenderer();
       const rect = r.domElement.getBoundingClientRect();
-      const mx = clientX - rect.left;
-      const my = clientY - rect.top;
       return globe.renderer.speciesLayer.hitTest(
         globe.renderer.getCamera(),
-        mx,
-        my,
+        clientX - rect.left,
+        clientY - rect.top,
         rect.width,
         rect.height,
       );
@@ -240,9 +238,9 @@ export function FishGlobe() {
       lastPointerRef.current.y = e.clientY;
 
       // Species hover takes priority over route hover
-      const sp = findSpeciesAtCursor(e.clientX, e.clientY);
-      if (sp) {
-        setHoveredSpecies({ species: sp, x: e.clientX, y: e.clientY });
+      const hit = findHitAtCursor(e.clientX, e.clientY);
+      if (hit) {
+        setHoveredSpecies({ species: hit.species, x: e.clientX, y: e.clientY });
         setRouteTooltip(null);
         (e.currentTarget as HTMLElement).style.cursor = 'pointer';
       } else {
@@ -251,23 +249,20 @@ export function FishGlobe() {
         (e.currentTarget as HTMLElement).style.cursor = routeTooltip ? 'pointer' : 'default';
       }
     },
-    [findSpeciesAtCursor, handleRouteHover, hoveredSpecies],
+    [findHitAtCursor, handleRouteHover, hoveredSpecies],
   );
 
   const handleClick = useCallback(
     (e: React.MouseEvent) => {
-      const sp = findSpeciesAtCursor(e.clientX, e.clientY);
-      if (sp) {
-        setSelectedSpecies(sp);
+      const hit = findHitAtCursor(e.clientX, e.clientY);
+      if (hit) {
+        setSelectedSpecies(hit.species);
         setHoveredSpecies(null);
-        // Fly to the species' best viewing spot
-        const spot = sp.viewingSpots[0];
-        if (spot) {
-          globe.flyTo(spot.lat, spot.lng, { duration: 1500, zoomDistance: 180 });
-        }
+        // Fly to the exact clicked location (not viewingSpots[0])
+        globe.flyTo(hit.lat, hit.lng, { duration: 1500, zoomDistance: 180 });
       }
     },
-    [findSpeciesAtCursor, globe],
+    [findHitAtCursor, globe],
   );
 
   // ── Render ──────────────────────────────────────────────────────────────
