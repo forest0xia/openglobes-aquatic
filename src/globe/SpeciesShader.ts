@@ -1,12 +1,12 @@
 // ---------------------------------------------------------------------------
 // SpeciesShader — instanced sprite billboards with bioluminescent glow.
 //
-// Position: lerp between instancePos (close) and instancePosFar (zoomed out).
-// Glow: quad is 2.5x sprite size, outer ring = radiant colored halo.
+// The quad is 1.8x the sprite size to allow glow halo around the body.
+// Body vs halo is determined by texture alpha, not distance.
 // ---------------------------------------------------------------------------
 
 export const speciesVertexShader = `
-  attribute vec3 instancePos;        // true geographic position (never offset)
+  attribute vec3 instancePos;
   attribute vec4 instanceUV;
   attribute float instancePhase;
   attribute float instanceAnim;
@@ -26,10 +26,8 @@ export const speciesVertexShader = `
   varying float vAnimType;
 
   void main() {
-    // Position is always the true geographic coordinate — no spreading
     vec3 pos = instancePos;
     float camDist = length(uCamPos);
-
     vec3 camDir = normalize(uCamPos);
     vec3 spriteDir = normalize(pos);
     float facing = dot(camDir, spriteDir);
@@ -44,51 +42,46 @@ export const speciesVertexShader = `
     vAnimType = instanceAnim;
     float anim = instanceAnim;
 
-    // Glow strength by type — all clearly visible
-    vGlowStrength = anim < 0.5 ? 1.0    // coral: strong fluorescence
-                  : anim > 2.5 && anim < 3.5 ? 0.8  // jellyfish: ethereal
-                  : 0.5;               // fish: noticeable glow
+    vGlowStrength = anim < 0.5 ? 1.0    // coral
+                  : anim > 2.5 && anim < 3.5 ? 0.8  // jellyfish
+                  : 0.5;               // fish
 
-    // ── Swimming displacement ──────────────────────────────────────
+    // ── Swimming ──────────────────────────────────────────────────
     float t = uTime + instancePhase;
     vec3 normal = normalize(pos);
     vec3 tangent = normalize(cross(vec3(0.0, 1.0, 0.0), normal));
     if (length(tangent) < 0.001) tangent = normalize(cross(vec3(1.0, 0.0, 0.0), normal));
     vec3 bitangent = cross(normal, tangent);
 
-    vec3 swimOffset = vec3(0.0);
     if (anim > 0.5 && anim < 1.5) {
-      swimOffset = tangent * sin(t * 0.4) * 0.2 + bitangent * sin(t * 0.15) * 0.12;
+      pos += tangent * sin(t * 0.4) * 0.2 + bitangent * sin(t * 0.15) * 0.12;
     } else if (anim > 1.5 && anim < 2.5) {
-      swimOffset = tangent * sin(t * 0.6) * 0.015 + normal * sin(t * 0.8) * 0.02;
+      pos += tangent * sin(t * 0.6) * 0.015 + normal * sin(t * 0.8) * 0.02;
     } else if (anim > 2.5 && anim < 3.5) {
-      swimOffset = tangent * cos(t * 0.1) * 0.04 + bitangent * sin(t * 0.15) * 0.06;
+      pos += tangent * cos(t * 0.1) * 0.04 + bitangent * sin(t * 0.15) * 0.06;
     } else if (anim > 3.5) {
       float cycle = mod(t * 0.5, 8.0);
       float burst = cycle < 0.8 ? sin(cycle / 0.8 * 3.14159) * 0.25 : sin(t * 0.3) * 0.03;
-      swimOffset = bitangent * burst;
+      pos += bitangent * burst;
     }
-    pos += swimOffset;
 
     // ── Billboard ──────────────────────────────────────────────────
     vec4 mvPos = modelViewMatrix * vec4(pos, 1.0);
     vec2 size = instanceSize;
 
-    // Minimum size
     float minSize = 0.4 + smoothstep(150.0, 400.0, camDist) * 0.8;
     size = max(size, vec2(minSize));
 
-    // Highlight
     if (uHighlightIdx >= 0 && gl_InstanceID == uHighlightIdx) {
       size *= uHighlightScale;
       vAlpha = min(vAlpha + 0.15, 1.0);
       vGlowStrength = min(vGlowStrength + 0.4, 1.0);
     }
 
-    // Expand quad 2.5x for glow halo
-    vec2 glowSize = size * 2.5;
+    // Expand quad by 1.8x for glow halo around the body
+    vec2 expandedSize = size * 1.8;
 
-    // Body wave (fish only)
+    // Body wave (fish)
     float bodyWave = 0.0;
     if (anim > 0.5) {
       float bodyX = position.x;
@@ -97,17 +90,20 @@ export const speciesVertexShader = `
       bodyWave = sin(bodyX * 6.28 - t * waveSpeed) * amp;
     }
 
-    vQuadPos = position.xy;
+    vQuadPos = position.xy; // -0.5 to 0.5
 
-    mvPos.x += position.x * glowSize.x;
-    mvPos.y += position.y * glowSize.y + bodyWave * size.y;
+    mvPos.x += position.x * expandedSize.x;
+    mvPos.y += position.y * expandedSize.y + bodyWave * size.y;
 
     gl_Position = projectionMatrix * mvPos;
 
-    // UV: map inner region to texture
-    vec2 innerUV = position.xy * 2.5 * 0.5 + 0.5; // remap expanded quad to 0..1
-    innerUV.y = 1.0 - innerUV.y;
-    vUV = instanceUV.xy + innerUV * instanceUV.zw;
+    // UV: the sprite texture fills the CENTER of the expanded quad.
+    // Map position.xy from the expanded space back to texture 0..1
+    // position goes -0.5..0.5, sprite fills the inner 1/1.8 = 55.6%
+    float uvScale = 1.8; // matches expandedSize multiplier
+    vec2 texUV = position.xy * uvScale + 0.5;
+    texUV.y = 1.0 - texUV.y; // flip Y for spritesheet
+    vUV = instanceUV.xy + clamp(texUV, 0.0, 1.0) * instanceUV.zw;
   }
 `;
 
@@ -123,48 +119,45 @@ export const speciesFragmentShader = `
   varying float vAnimType;
 
   void main() {
-    float dist = length(vQuadPos);
     vec4 texel = texture2D(uAtlas, vUV);
+    float dist = length(vQuadPos);
 
-    // Breathing pulse
-    float pulse = 0.65 + 0.35 * sin(uTime * 1.5 + vGlowColor.r * 20.0 + vGlowColor.g * 30.0);
+    float pulse = 0.6 + 0.4 * sin(uTime * 1.5 + vGlowColor.r * 20.0 + vGlowColor.g * 30.0);
     float glow = vGlowStrength * pulse;
 
-    // ── Radiant halo ─────────────────────────────────────────────
-    float innerHalo = (1.0 - smoothstep(0.05, 0.25, dist)) * glow * 1.5;
-    float outerHalo = (1.0 - smoothstep(0.10, 0.48, dist)) * glow * 0.7;
-    float totalHalo = innerHalo + outerHalo;
-
-    // Body region: texture + glow tint
-    if (dist < 0.20 && texel.a > 0.05) {
+    // If texture has alpha → this is the body
+    if (texel.a > 0.05) {
       vec3 color = texel.rgb;
-      color += vGlowColor * glow * 0.5;
+      // Additive glow tint on body
+      color += vGlowColor * glow * 0.4;
+      // Edge glow (where alpha transitions)
       float bodyEdge = 1.0 - smoothstep(0.05, 0.5, texel.a);
-      color += vGlowColor * bodyEdge * glow * 0.8;
-      color *= 1.0 + glow * 0.3;
+      color += vGlowColor * bodyEdge * glow * 0.7;
+      color *= 1.0 + glow * 0.25;
 
+      // Coral extra fluorescence
       if (vAnimType < 0.5) {
-        color = mix(color, vGlowColor * 2.5, bodyEdge * 0.4);
+        color = mix(color, vGlowColor * 2.0, bodyEdge * 0.35);
       }
 
       gl_FragColor = vec4(color, texel.a * vAlpha);
     }
-    // Halo region: radiant colored light
-    else if (totalHalo > 0.003) {
-      vec3 haloColor = vGlowColor * totalHalo;
+    // Outside body: radiant glow halo
+    else {
+      // Two-layer halo
+      float innerHalo = (1.0 - smoothstep(0.1, 0.3, dist)) * glow * 1.2;
+      float outerHalo = (1.0 - smoothstep(0.2, 0.5, dist)) * glow * 0.5;
+      float totalHalo = innerHalo + outerHalo;
 
-      if (vAnimType < 0.5) {
-        haloColor *= 2.5; // coral: very bright fluorescence
-      }
+      if (totalHalo < 0.005) discard;
+
+      vec3 haloColor = vGlowColor * totalHalo;
+      if (vAnimType < 0.5) haloColor *= 2.0;
       if (vAnimType > 2.5 && vAnimType < 3.5) {
-        float ethereal = 0.5 + 0.5 * sin(uTime * 2.5 + vGlowColor.b * 40.0);
-        haloColor *= 0.8 + ethereal * 0.5;
+        haloColor *= 0.8 + 0.5 * sin(uTime * 2.5 + vGlowColor.b * 40.0);
       }
 
       gl_FragColor = vec4(haloColor, totalHalo * vAlpha);
-    }
-    else {
-      discard;
     }
   }
 `;
