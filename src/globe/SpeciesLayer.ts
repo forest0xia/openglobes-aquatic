@@ -112,6 +112,10 @@ export class SpeciesLayer {
           nameZh: sp.nameZh,
           taglineZh: sp.tagline.zh,
         });
+        nameMap.set(sp.name.toLowerCase(), {
+          nameZh: sp.nameZh,
+          taglineZh: sp.tagline.zh,
+        });
       }
 
       for (const route of migrationRoutes) {
@@ -120,17 +124,21 @@ export class SpeciesLayer {
         const rect = manifest.sprites[spriteKey];
         if (!rect) continue;
 
-        // Look up Chinese name from species data
+        // Look up Chinese name: species data first, then route's own nameZh field
         const match = nameMap.get(route.species.toLowerCase());
+        const routeNameZh = match?.nameZh || route.nameZh || '';
+
+        // Skip routes without Chinese name — don't show English-only fish
+        if (!routeNameZh) continue;
 
         const routeSpecies: Species = {
           aphiaId: 0,
           tier: 'ecosystem',
           name: route.species,
-          nameZh: match?.nameZh || '',
+          nameZh: routeNameZh,
           tagline: {
             en: route.description || route.name,
-            zh: match?.taglineZh || '',
+            zh: match?.taglineZh || route.description || route.name,
           },
           scientificName: route.species,
           sprite: `${spriteKey}.png`,
