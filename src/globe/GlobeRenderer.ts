@@ -200,9 +200,12 @@ export class GlobeRenderer {
     this.lastPointer.x = e.clientX;
     this.lastPointer.y = e.clientY;
 
-    this.tgtAngle.theta -= dx * 0.004;
+    // Sensitivity scales with zoom — slower when zoomed in, faster when zoomed out
+    const sensitivity = 0.002 + (this.curDist - 120) / (500 - 120) * 0.003;
+    // At minDist(120): 0.002 (slow/precise), at maxDist(500): 0.005 (fast overview)
+    this.tgtAngle.theta -= dx * sensitivity;
     this.tgtAngle.phi = Math.max(0.1, Math.min(Math.PI - 0.1,
-      this.tgtAngle.phi - dy * 0.004));
+      this.tgtAngle.phi - dy * sensitivity));
   };
 
   private onPointerUp = (): void => {
@@ -211,7 +214,8 @@ export class GlobeRenderer {
 
   private onWheel = (e: WheelEvent): void => {
     e.preventDefault();
-    const zoomPct = this.tgtDist < 200 ? 0.001 : 0.0005;
+    // Zoom sensitivity: slower when close (fine control), faster when far
+    const zoomPct = this.tgtDist < 160 ? 0.0005 : this.tgtDist < 250 ? 0.0008 : 0.001;
     this.tgtDist = Math.max(120, Math.min(500,
       this.tgtDist * (1 + e.deltaY * zoomPct)));
   };
