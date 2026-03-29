@@ -244,6 +244,7 @@ export class SpeciesLayer {
         uAtlas: { value: atlasTexture },
         uTime: { value: 0 },
         uCamPos: { value: new THREE.Vector3() },
+        uHighlightIdx: { value: -1 },
       },
       transparent: true,
       depthWrite: false,
@@ -267,12 +268,34 @@ export class SpeciesLayer {
   }
 
   // -------------------------------------------------------------------------
+  // highlight — set which instance is hovered/selected (1.3x scale in shader)
+  // -------------------------------------------------------------------------
+
+  /** Set the highlighted instance index. -1 = none. */
+  setHighlight(idx: number): void {
+    if (this.material) {
+      this.material.uniforms.uHighlightIdx.value = idx;
+    }
+  }
+
+  /** Find the instance index for a species at a given lat/lng. */
+  findInstanceIndex(species: Species, lat: number, lng: number): number {
+    for (let i = 0; i < this.speciesRefs.length; i++) {
+      if (this.speciesRefs[i] === species) {
+        const spot = this.spotRefs[i];
+        if (Math.abs(spot.lat - lat) < 0.01 && Math.abs(spot.lng - lng) < 0.01) {
+          return i;
+        }
+      }
+    }
+    // Fallback: find any instance of this species
+    return this.speciesRefs.indexOf(species);
+  }
+
+  // -------------------------------------------------------------------------
   // update — called every frame
   // -------------------------------------------------------------------------
 
-  /**
-   * Update per-frame uniforms. The GPU handles all animation.
-   */
   update(time: number, camera: THREE.Camera): void {
     if (!this.material) return;
     this.material.uniforms.uTime.value = time;

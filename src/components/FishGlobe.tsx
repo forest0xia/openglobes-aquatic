@@ -243,13 +243,21 @@ export function FishGlobe() {
         setHoveredSpecies({ species: hit.species, x: e.clientX, y: e.clientY });
         setRouteTooltip(null);
         (e.currentTarget as HTMLElement).style.cursor = 'pointer';
+        // Highlight the hovered instance (1.3x scale in shader)
+        if (globe.renderer) {
+          const idx = globe.renderer.speciesLayer.findInstanceIndex(hit.species, hit.lat, hit.lng);
+          globe.renderer.speciesLayer.setHighlight(idx);
+        }
       } else {
-        if (hoveredSpecies) setHoveredSpecies(null);
+        if (hoveredSpecies) {
+          setHoveredSpecies(null);
+          globe.renderer?.speciesLayer.setHighlight(-1);
+        }
         handleRouteHover(e.clientX, e.clientY);
         (e.currentTarget as HTMLElement).style.cursor = routeTooltip ? 'pointer' : 'default';
       }
     },
-    [findHitAtCursor, handleRouteHover, hoveredSpecies],
+    [findHitAtCursor, handleRouteHover, hoveredSpecies, globe.renderer],
   );
 
   const handleClick = useCallback(
@@ -258,7 +266,11 @@ export function FishGlobe() {
       if (hit) {
         setSelectedSpecies(hit.species);
         setHoveredSpecies(null);
-        // Fly to the exact clicked location (not viewingSpots[0])
+        // Highlight the selected instance
+        if (globe.renderer) {
+          const idx = globe.renderer.speciesLayer.findInstanceIndex(hit.species, hit.lat, hit.lng);
+          globe.renderer.speciesLayer.setHighlight(idx);
+        }
         globe.flyTo(hit.lat, hit.lng, { duration: 1500, zoomDistance: 180 });
       }
     },
@@ -555,7 +567,7 @@ export function FishGlobe() {
             {/* Close button */}
             <button
               type="button"
-              onClick={() => setSelectedSpecies(null)}
+              onClick={() => { setSelectedSpecies(null); globe.renderer?.speciesLayer.setHighlight(-1); }}
               style={{
                 position: 'absolute',
                 top: 12,
