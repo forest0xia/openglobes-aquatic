@@ -31,11 +31,9 @@ export function FishGlobe() {
   const [maxMigrationRoutes, setMaxMigrationRoutes] = useState(0);
   const [showMigrations, setShowMigrations] = useState(true);
   const [showCurrents, setShowCurrents] = useState(CURRENTS_DEFAULT_VISIBLE);
-  const [routeTooltip, setRouteTooltip] = useState<{
-    x: number;
-    y: number;
-    route: MigrationRoute;
-  } | null>(null);
+  // Route tooltip also managed via DOM ref (no React re-render)
+  const routeTooltipRef = useRef<HTMLDivElement>(null);
+  const routeTooltipActive = useRef(false);
 
   // Load migration routes on mount
   useEffect(() => {
@@ -155,7 +153,7 @@ export function FishGlobe() {
         !showMigrationsRef.current ||
         routes.length === 0
       ) {
-        setRouteTooltip(null);
+        if (routeTooltipRef.current) routeTooltipRef.current.style.display = "none";
         return;
       }
 
@@ -180,13 +178,13 @@ export function FishGlobe() {
       const discriminant = b * b - 4 * a * c;
 
       if (discriminant < 0) {
-        setRouteTooltip(null);
+        if (routeTooltipRef.current) routeTooltipRef.current.style.display = "none";
         return;
       }
 
       const t = (-b - Math.sqrt(discriminant)) / (2 * a);
       if (t < 0) {
-        setRouteTooltip(null);
+        if (routeTooltipRef.current) routeTooltipRef.current.style.display = "none";
         return;
       }
 
@@ -241,10 +239,18 @@ export function FishGlobe() {
         }
       }
 
-      if (bestRoute) {
-        setRouteTooltip({ x: clientX, y: clientY, route: bestRoute });
-      } else {
-        setRouteTooltip(null);
+      const el = routeTooltipRef.current;
+      if (bestRoute && el) {
+        routeTooltipActive.current = true;
+        el.style.display = 'block';
+        el.style.left = `${clientX + 12}px`;
+        el.style.top = `${clientY - 10}px`;
+        el.innerHTML = `
+          <div style="font-family:var(--og-font-body);font-size:12px;color:var(--og-text-primary);font-weight:500">${bestRoute.name}</div>
+          <div style="font-family:var(--og-font-mono);font-size:10px;color:var(--og-text-tertiary);margin-top:2px">${bestRoute.species} · ${bestRoute.type}</div>`;
+      } else if (el) {
+        routeTooltipActive.current = false;
+        el.style.display = 'none';
       }
     },
     [globe.renderer],
@@ -268,7 +274,7 @@ export function FishGlobe() {
       const hit = findHitAtCursor(e.clientX, e.clientY);
       if (hit) {
         showTooltip(hit.species, e.clientX, e.clientY);
-        if (routeTooltip) setRouteTooltip(null);
+        if (routeTooltipRef.current) routeTooltipRef.current.style.display = 'none';
         (e.currentTarget as HTMLElement).style.cursor = 'pointer';
         if (globe.renderer) {
           const idx = globe.renderer.speciesLayer.findInstanceIndex(hit.species, hit.lat, hit.lng);
@@ -283,7 +289,7 @@ export function FishGlobe() {
         (e.currentTarget as HTMLElement).style.cursor = 'default';
       }
     },
-    [findHitAtCursor, handleRouteHover, showTooltip, hideTooltip, routeTooltip],
+    [findHitAtCursor, handleRouteHover, showTooltip, hideTooltip],
   );
 
   const handleClick = useCallback(
@@ -698,43 +704,21 @@ export function FishGlobe() {
         }}
       />
 
-      {/* ── Route hover tooltip ──────────────────────────────────────── */}
-      {routeTooltip && (
-        <div
-          className="og-glass"
-          style={{
-            position: 'fixed',
-            left: routeTooltip.x + 12,
-            top: routeTooltip.y - 10,
-            zIndex: 30,
-            padding: '8px 12px',
-            cursor: 'pointer',
-            maxWidth: 250,
-            borderRadius: 'var(--og-radius-sm)',
-          }}
-        >
-          <div
-            style={{
-              fontFamily: 'var(--og-font-body)',
-              fontSize: 12,
-              color: 'var(--og-text-primary)',
-              fontWeight: 500,
-            }}
-          >
-            {routeTooltip.route.name}
-          </div>
-          <div
-            style={{
-              fontFamily: 'var(--og-font-mono)',
-              fontSize: 10,
-              color: 'var(--og-text-tertiary)',
-              marginTop: 2,
-            }}
-          >
-            {routeTooltip.route.species} &middot; {routeTooltip.route.type}
-          </div>
-        </div>
-      )}
+      {/* ── Route hover tooltip (DOM-managed) ────────────────────────── */}
+      <div
+        ref={routeTooltipRef}
+        className="og-glass"
+        style={{
+          display: 'none',
+          position: 'fixed',
+          zIndex: 30,
+          padding: '8px 12px',
+          cursor: 'pointer',
+          maxWidth: 250,
+          borderRadius: 'var(--og-radius-sm)',
+          pointerEvents: 'none',
+        }}
+      />
 
       {/* ── Mobile controls toggle ──────────────────────────────────────── */}
       <button

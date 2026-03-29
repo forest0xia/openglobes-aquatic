@@ -297,17 +297,24 @@ export class SpeciesLayer {
   // update — called every frame
   // -------------------------------------------------------------------------
 
-  private highlightTarget = 1.0;
+  private highlightT = 0; // 0→1 animation progress
+  private highlightDir = 0; // 1=growing, -1=shrinking, 0=idle
 
   update(time: number, camera: THREE.Camera): void {
     if (!this.material) return;
     this.material.uniforms.uTime.value = time;
     this.material.uniforms.uCamPos.value.copy(camera.position);
 
-    // Smooth highlight scale animation (gentle ease — ~400ms to full)
-    const target = this.material.uniforms.uHighlightIdx.value >= 0 ? 1.3 : 1.0;
-    const cur = this.material.uniforms.uHighlightScale.value as number;
-    this.material.uniforms.uHighlightScale.value = cur + (target - cur) * 0.06;
+    // Smooth highlight animation with ease-out cubic curve
+    const wantHighlight = this.material.uniforms.uHighlightIdx.value >= 0;
+    if (wantHighlight && this.highlightT < 1) {
+      this.highlightT = Math.min(1, this.highlightT + 0.04); // ~25 frames = ~400ms
+    } else if (!wantHighlight && this.highlightT > 0) {
+      this.highlightT = Math.max(0, this.highlightT - 0.06); // shrink slightly faster
+    }
+    // Ease-out cubic: fast start, gentle end
+    const eased = 1 - Math.pow(1 - this.highlightT, 3);
+    this.material.uniforms.uHighlightScale.value = 1.0 + eased * 0.3; // 1.0 → 1.3
   }
 
   // -------------------------------------------------------------------------
