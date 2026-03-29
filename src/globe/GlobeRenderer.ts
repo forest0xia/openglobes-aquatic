@@ -49,6 +49,7 @@ export class GlobeRenderer {
   readonly trailLayer: TrailLayer;
 
   private frameId = 0;
+  private frameTick = 0;
   private lastTime = 0;
   private elapsedTime = 0;
   private onFrameCb: ((dt: number) => void) | null = null;
@@ -296,6 +297,16 @@ export class GlobeRenderer {
     this.onFrameCb?.(dt);
 
     this.renderer.render(this.scene, this.camera);
+
+    // Frame time monitor — detect progressive slowdown
+    this.frameTick++;
+    const frameEnd = performance.now() / 1000;
+    const frameMs = (frameEnd - now) * 1000;
+    if (this.frameTick % 300 === 0) {
+      const info = this.renderer.info;
+      console.log(`[frame] ${frameMs.toFixed(1)}ms | calls=${info.render.calls} tris=${info.render.triangles} geo=${info.memory.geometries} tex=${info.memory.textures} children=${this.scene.children.length}`);
+      info.reset();
+    }
   };
 
   // ─── Resize ─────────────────────────────────────────────────────────────
