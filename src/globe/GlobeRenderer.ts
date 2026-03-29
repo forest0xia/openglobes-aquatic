@@ -110,6 +110,9 @@ export class GlobeRenderer {
     el.addEventListener('touchmove', this.onTouchMove, { passive: false });
     el.addEventListener('touchend', this.onTouchEnd);
 
+    // Pause rendering when tab is hidden — saves GPU/CPU
+    document.addEventListener('visibilitychange', this.onVisibilityChange);
+
     this.animate();
   }
 
@@ -242,6 +245,20 @@ export class GlobeRenderer {
   };
   private onTouchEnd = (): void => { this.pinchDist = 0; };
 
+  private onVisibilityChange = (): void => {
+    if (document.hidden) {
+      // Tab hidden — stop rendering completely
+      cancelAnimationFrame(this.frameId);
+      this.frameId = 0;
+    } else {
+      // Tab visible again — restart
+      if (this.frameId === 0 && this.mounted) {
+        this.lastTime = 0; // reset dt so we don't get a huge jump
+        this.animate();
+      }
+    }
+  };
+
   // ─── Animation loop ─────────────────────────────────────────────────────
 
   private animate = (): void => {
@@ -313,7 +330,10 @@ export class GlobeRenderer {
 
   dispose(): void {
     cancelAnimationFrame(this.frameId);
+    this.frameId = 0;
+    this.mounted = false;
     window.removeEventListener('resize', this.handleResize);
+    document.removeEventListener('visibilitychange', this.onVisibilityChange);
 
     const el = this.renderer.domElement;
     el.removeEventListener('pointerdown', this.onPointerDown);
