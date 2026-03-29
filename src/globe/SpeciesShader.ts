@@ -6,8 +6,7 @@
 // ---------------------------------------------------------------------------
 
 export const speciesVertexShader = `
-  attribute vec3 instancePos;        // close-zoom position (collision-resolved)
-  attribute vec3 instancePosFar;     // far-zoom position (more spread out)
+  attribute vec3 instancePos;        // true geographic position (never offset)
   attribute vec4 instanceUV;
   attribute float instancePhase;
   attribute float instanceAnim;
@@ -27,12 +26,9 @@ export const speciesVertexShader = `
   varying float vAnimType;
 
   void main() {
-    // Position = raw geographic pos + spread offset scaled by zoom
-    // instancePosFar is a fixed offset direction (computed once at build)
-    // spreadFactor goes 0→1 as camera moves from close to far
+    // Position is always the true geographic coordinate — no spreading
+    vec3 pos = instancePos;
     float camDist = length(uCamPos);
-    float spreadFactor = smoothstep(140.0, 320.0, camDist);
-    vec3 pos = instancePos + instancePosFar * spreadFactor;
 
     vec3 camDir = normalize(uCamPos);
     vec3 spriteDir = normalize(pos);
@@ -48,10 +44,10 @@ export const speciesVertexShader = `
     vAnimType = instanceAnim;
     float anim = instanceAnim;
 
-    // Glow strength by type
-    vGlowStrength = anim < 0.5 ? 0.9    // coral: strong fluorescence
-                  : anim > 2.5 && anim < 3.5 ? 0.6  // jellyfish
-                  : 0.3;               // fish
+    // Glow strength by type — all clearly visible
+    vGlowStrength = anim < 0.5 ? 1.0    // coral: strong fluorescence
+                  : anim > 2.5 && anim < 3.5 ? 0.8  // jellyfish: ethereal
+                  : 0.5;               // fish: noticeable glow
 
     // ── Swimming displacement ──────────────────────────────────────
     float t = uTime + instancePhase;
@@ -134,42 +130,35 @@ export const speciesFragmentShader = `
     float pulse = 0.65 + 0.35 * sin(uTime * 1.5 + vGlowColor.r * 20.0 + vGlowColor.g * 30.0);
     float glow = vGlowStrength * pulse;
 
-    // ── Radiant halo (outer glow radiating from body) ────────────
-    // Two-layer glow: inner bright ring + outer soft halo
-    float innerHalo = (1.0 - smoothstep(0.08, 0.30, dist)) * glow * 1.2;
-    float outerHalo = (1.0 - smoothstep(0.15, 0.50, dist)) * glow * 0.5;
+    // ── Radiant halo ─────────────────────────────────────────────
+    float innerHalo = (1.0 - smoothstep(0.05, 0.25, dist)) * glow * 1.5;
+    float outerHalo = (1.0 - smoothstep(0.10, 0.48, dist)) * glow * 0.7;
     float totalHalo = innerHalo + outerHalo;
 
     // Body region: texture + glow tint
     if (dist < 0.20 && texel.a > 0.05) {
       vec3 color = texel.rgb;
-      // Additive glow on body
-      color += vGlowColor * glow * 0.35;
-      // Edge glow within body
+      color += vGlowColor * glow * 0.5;
       float bodyEdge = 1.0 - smoothstep(0.05, 0.5, texel.a);
-      color += vGlowColor * bodyEdge * glow * 0.6;
-      // Brightness boost
-      color *= 1.0 + glow * 0.2;
+      color += vGlowColor * bodyEdge * glow * 0.8;
+      color *= 1.0 + glow * 0.3;
 
-      // Coral extra fluorescence
       if (vAnimType < 0.5) {
-        color = mix(color, vGlowColor * 2.0, bodyEdge * 0.3);
+        color = mix(color, vGlowColor * 2.5, bodyEdge * 0.4);
       }
 
       gl_FragColor = vec4(color, texel.a * vAlpha);
     }
-    // Halo region: pure radiant light
-    else if (totalHalo > 0.005) {
+    // Halo region: radiant colored light
+    else if (totalHalo > 0.003) {
       vec3 haloColor = vGlowColor * totalHalo;
 
-      // Coral: extra bright fluorescent halo
       if (vAnimType < 0.5) {
-        haloColor *= 2.0;
+        haloColor *= 2.5; // coral: very bright fluorescence
       }
-      // Jellyfish: ethereal double-pulse
       if (vAnimType > 2.5 && vAnimType < 3.5) {
         float ethereal = 0.5 + 0.5 * sin(uTime * 2.5 + vGlowColor.b * 40.0);
-        haloColor *= 0.8 + ethereal * 0.4;
+        haloColor *= 0.8 + ethereal * 0.5;
       }
 
       gl_FragColor = vec4(haloColor, totalHalo * vAlpha);

@@ -168,81 +168,14 @@ export class SpeciesLayer {
     const count = resolved.length;
     if (count === 0) return;
 
-    // --- Classification: separate corals (static) from mobile species ---
-    const isStatic: boolean[] = [];
-    for (let i = 0; i < count; i++) {
-      const anim = resolved[i].sp.display.animation as string;
-      isStatic.push(anim === 'static' || anim === 'none');
-    }
-
-    // --- Compute raw world positions from lat/lng ---
-    const rawPositions: THREE.Vector3[] = [];
+    // --- Compute world positions from lat/lng ---
+    // NO collision resolution, NO offsets. Every instance is at its true
+    // geographic coordinate. Overlap is acceptable — better than wrong location.
     const _v = new THREE.Vector3();
-    for (let i = 0; i < count; i++) {
-      latLngToVec3(resolved[i].spot.lat, resolved[i].spot.lng, GLOBE_RADIUS, SPRITE_ALT, _v);
-      rawPositions.push(_v.clone());
-    }
 
-    // --- Single collision resolution pass ---
-    // Corals can be close together (MIN_DIST=1.5), mobile species need more space (MIN_DIST=3.0).
-    // Mobile species are also pushed AWAY from nearby corals so they orbit around reef clusters.
-    const positions = rawPositions.map(p => p.clone());
-    const _push = new THREE.Vector3();
-    for (let pass = 0; pass < 4; pass++) {
-      for (let i = 0; i < count; i++) {
-        for (let j = i + 1; j < count; j++) {
-          const dx = positions[j].x - positions[i].x;
-          const dy = positions[j].y - positions[i].y;
-          const dz = positions[j].z - positions[i].z;
-          const distSq = dx * dx + dy * dy + dz * dz;
-
-          // Min distance depends on types
-          const bothStatic = isStatic[i] && isStatic[j];
-          const eitherMobile = !isStatic[i] || !isStatic[j];
-          const minDist = bothStatic ? 1.5 : eitherMobile ? 3.0 : 2.0;
-
-          if (distSq < minDist * minDist && distSq > 0.001) {
-            const dist = Math.sqrt(distSq);
-            const overlap = (minDist - dist) * 0.5;
-            _push.set(dx / dist * overlap, dy / dist * overlap, dz / dist * overlap);
-
-            // If one is coral and other is mobile, only push the mobile one
-            if (isStatic[i] && !isStatic[j]) {
-              positions[j].add(_push).add(_push); // double push on mobile
-            } else if (!isStatic[i] && isStatic[j]) {
-              positions[i].sub(_push).sub(_push);
-            } else {
-              positions[i].sub(_push);
-              positions[j].add(_push);
-            }
-            positions[i].normalize().multiplyScalar(GLOBE_RADIUS * (1 + SPRITE_ALT));
-            positions[j].normalize().multiplyScalar(GLOBE_RADIUS * (1 + SPRITE_ALT));
-          }
-        }
-      }
-    }
-
-    // --- Compute spread offset vectors (fixed direction per instance) ---
-    // offset = resolved_position - raw_position
-    // Clamped to max 4 world units so fish don't drift to land.
-    const MAX_OFFSET = 4.0;
-    const offsets: THREE.Vector3[] = [];
-    for (let i = 0; i < count; i++) {
-      const off = positions[i].clone().sub(rawPositions[i]);
-      const len = off.length();
-      if (len > MAX_OFFSET) off.multiplyScalar(MAX_OFFSET / len);
-      offsets.push(off);
-    }
-
-    // --- Geometry (unit quad) ------------------------------------------------
     const geometry = new THREE.PlaneGeometry(1, 1);
 
-    // --- Instance attributes -------------------------------------------------
-    // instancePos = raw position (true geographic location)
-    // instancePosFar = offset vector (direction to spread)
-    // Shader: finalPos = instancePos + instancePosFar * spreadFactor
     const posArr = new Float32Array(count * 3);
-    const offsetArr = new Float32Array(count * 3);
     const uvArr = new Float32Array(count * 4);
     const phaseArr = new Float32Array(count);
     const animArr = new Float32Array(count);
@@ -256,18 +189,12 @@ export class SpeciesLayer {
 
     for (let i = 0; i < count; i++) {
       const { sp, spot, rect } = resolved[i];
-      const rawPos = rawPositions[i];
-      const offset = offsets[i];
+      latLngToVec3(spot.lat, spot.lng, GLOBE_RADIUS, SPRITE_ALT, _v);
 
-      posArr[i * 3] = rawPos.x;
-      posArr[i * 3 + 1] = rawPos.y;
-      posArr[i * 3 + 2] = rawPos.z;
-      // Store offset × 1.5 — mild spread, allows some overlap at far zoom
-      // but keeps fish near their real geographic location
-      offsetArr[i * 3] = offset.x * 1.5;
-      offsetArr[i * 3 + 1] = offset.y * 1.5;
-      offsetArr[i * 3 + 2] = offset.z * 1.5;
-      this.positions.push(rawPos);
+      posArr[i * 3] = _v.x;
+      posArr[i * 3 + 1] = _v.y;
+      posArr[i * 3 + 2] = _v.z;
+      this.positions.push(_v.clone());
 
       // UV rect (normalized to sheet)
       uvArr[i * 4] = rect.x / sheetWidth;
@@ -330,10 +257,7 @@ export class SpeciesLayer {
       'instanceColor',
       new THREE.InstancedBufferAttribute(colorArr, 3),
     );
-    geometry.setAttribute(
-      'instancePosFar',
-      new THREE.InstancedBufferAttribute(offsetArr, 3),
-    );
+    // No instancePosFar — positions are always at true geographic coordinates
 
     // --- Material ------------------------------------------------------------
     this.material = new THREE.ShaderMaterial({
