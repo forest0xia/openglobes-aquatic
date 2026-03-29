@@ -259,14 +259,27 @@ export function FishGlobe() {
 
   // ── Pointer handlers ────────────────────────────────────────────────────
   const lastPointerRef = useRef({ x: 0, y: 0 });
+  const isDraggingRef = useRef(false);
+  const handlePointerDown = useCallback(() => {
+    isDraggingRef.current = true;
+    // Hide tooltips during drag
+    hideTooltip();
+    if (routeTooltipRef.current) routeTooltipRef.current.style.display = 'none';
+    globe.renderer?.speciesLayer.setHighlight(-1);
+  }, [hideTooltip]);
+  const handlePointerUp = useCallback(() => { isDraggingRef.current = false; }, []);
+
   const handlePointerMove = useCallback(
     (e: React.PointerEvent) => {
-      // Throttle to every 150ms and skip if pointer barely moved
+      // Skip ALL hover processing during globe rotation drag
+      if (isDraggingRef.current) return;
+
+      // Throttle to every 200ms and skip if pointer barely moved
       const now = Date.now();
-      if (now - hoverThrottleRef.current < 150) return;
+      if (now - hoverThrottleRef.current < 200) return;
       const dx = e.clientX - lastPointerRef.current.x;
       const dy = e.clientY - lastPointerRef.current.y;
-      if (dx * dx + dy * dy < 9) return;
+      if (dx * dx + dy * dy < 16) return; // 4px minimum movement
       hoverThrottleRef.current = now;
       lastPointerRef.current.x = e.clientX;
       lastPointerRef.current.y = e.clientY;
@@ -286,6 +299,7 @@ export function FishGlobe() {
           hideTooltip();
           globe.renderer?.speciesLayer.setHighlight(-1);
         }
+        // Only check route hover when NOT dragging and pointer is relatively still
         handleRouteHover(e.clientX, e.clientY);
         (e.currentTarget as HTMLElement).style.cursor = 'default';
       }
@@ -314,6 +328,9 @@ export function FishGlobe() {
   return (
     <div
       id="og-app"
+      onPointerDown={handlePointerDown}
+      onPointerUp={handlePointerUp}
+      onPointerLeave={handlePointerUp}
       onPointerMove={handlePointerMove}
       onClick={handleClick}
       style={{
