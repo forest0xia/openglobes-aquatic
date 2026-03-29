@@ -609,11 +609,6 @@ export function FishGlobe() {
               color: 'var(--og-text-secondary)', lineHeight: 1.5, marginBottom: 16,
             }}>
               {selectedSpecies.tagline.zh || selectedSpecies.tagline.en}
-              {selectedSpecies.tagline.zh && selectedSpecies.tagline.en && (
-                <div style={{ color: 'var(--og-text-tertiary)', marginTop: 4, fontSize: 12 }}>
-                  {selectedSpecies.tagline.en}
-                </div>
-              )}
             </div>
 
             {/* Tags */}
