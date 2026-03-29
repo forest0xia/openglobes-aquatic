@@ -223,12 +223,15 @@ export class SpeciesLayer {
     }
 
     // --- Compute spread offset vectors (fixed direction per instance) ---
-    // offset = resolved_position - raw_position, then extended for far zoom.
-    // This ensures: close zoom → small offset, far zoom → proportionally larger
-    // offset in the SAME direction. No position swaps ever.
+    // offset = resolved_position - raw_position
+    // Clamped to max 4 world units so fish don't drift to land.
+    const MAX_OFFSET = 4.0;
     const offsets: THREE.Vector3[] = [];
     for (let i = 0; i < count; i++) {
-      offsets.push(positions[i].clone().sub(rawPositions[i]));
+      const off = positions[i].clone().sub(rawPositions[i]);
+      const len = off.length();
+      if (len > MAX_OFFSET) off.multiplyScalar(MAX_OFFSET / len);
+      offsets.push(off);
     }
 
     // --- Geometry (unit quad) ------------------------------------------------
@@ -259,10 +262,11 @@ export class SpeciesLayer {
       posArr[i * 3] = rawPos.x;
       posArr[i * 3 + 1] = rawPos.y;
       posArr[i * 3 + 2] = rawPos.z;
-      // Store offset × 3 so shader can scale up to 3x the collision offset
-      offsetArr[i * 3] = offset.x * 3.0;
-      offsetArr[i * 3 + 1] = offset.y * 3.0;
-      offsetArr[i * 3 + 2] = offset.z * 3.0;
+      // Store offset × 1.5 — mild spread, allows some overlap at far zoom
+      // but keeps fish near their real geographic location
+      offsetArr[i * 3] = offset.x * 1.5;
+      offsetArr[i * 3 + 1] = offset.y * 1.5;
+      offsetArr[i * 3 + 2] = offset.z * 1.5;
       this.positions.push(rawPos);
 
       // UV rect (normalized to sheet)
