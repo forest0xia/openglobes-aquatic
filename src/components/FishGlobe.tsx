@@ -24,10 +24,7 @@ const _hitPoint = new THREE.Vector3(); // reusable for route hover ray hit
 // species sprites, migration trails, search, hover tooltips, and detail panel.
 // ---------------------------------------------------------------------------
 
-const renderCount = { n: 0 };
 export function FishGlobe() {
-  renderCount.n++;
-  if (renderCount.n % 10 === 0) console.log(`[FishGlobe] render #${renderCount.n}`);
   const globe = useGlobe();
   const { species, hotspots, loading: dataLoading } = useSpeciesData();
 
