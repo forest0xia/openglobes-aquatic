@@ -27,10 +27,12 @@ export const speciesVertexShader = `
   varying float vAnimType;
 
   void main() {
-    // Lerp between close and far positions based on camera distance
+    // Position = raw geographic pos + spread offset scaled by zoom
+    // instancePosFar is a fixed offset direction (computed once at build)
+    // spreadFactor goes 0→1 as camera moves from close to far
     float camDist = length(uCamPos);
-    float farMix = smoothstep(140.0, 320.0, camDist);
-    vec3 pos = mix(instancePos, instancePosFar, farMix);
+    float spreadFactor = smoothstep(140.0, 320.0, camDist);
+    vec3 pos = instancePos + instancePosFar * spreadFactor;
 
     vec3 camDir = normalize(uCamPos);
     vec3 spriteDir = normalize(pos);

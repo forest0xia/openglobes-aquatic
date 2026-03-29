@@ -168,30 +168,53 @@ export class SpeciesLayer {
     const count = resolved.length;
     if (count === 0) return;
 
-    // --- Compute initial world positions ---
-    const positions: THREE.Vector3[] = [];
+    // --- Classification: separate corals (static) from mobile species ---
+    const isStatic: boolean[] = [];
+    for (let i = 0; i < count; i++) {
+      const anim = resolved[i].sp.display.animation as string;
+      isStatic.push(anim === 'static' || anim === 'none');
+    }
+
+    // --- Compute raw world positions from lat/lng ---
+    const rawPositions: THREE.Vector3[] = [];
     const _v = new THREE.Vector3();
     for (let i = 0; i < count; i++) {
       latLngToVec3(resolved[i].spot.lat, resolved[i].spot.lng, GLOBE_RADIUS, SPRITE_ALT, _v);
-      positions.push(_v.clone());
+      rawPositions.push(_v.clone());
     }
 
-    // --- Collision resolution (close positions) ---
-    const MIN_DIST_CLOSE = 2.5;
+    // --- Single collision resolution pass ---
+    // Corals can be close together (MIN_DIST=1.5), mobile species need more space (MIN_DIST=3.0).
+    // Mobile species are also pushed AWAY from nearby corals so they orbit around reef clusters.
+    const positions = rawPositions.map(p => p.clone());
     const _push = new THREE.Vector3();
-    for (let pass = 0; pass < 3; pass++) {
+    for (let pass = 0; pass < 4; pass++) {
       for (let i = 0; i < count; i++) {
         for (let j = i + 1; j < count; j++) {
           const dx = positions[j].x - positions[i].x;
           const dy = positions[j].y - positions[i].y;
           const dz = positions[j].z - positions[i].z;
           const distSq = dx * dx + dy * dy + dz * dz;
-          if (distSq < MIN_DIST_CLOSE * MIN_DIST_CLOSE && distSq > 0.001) {
+
+          // Min distance depends on types
+          const bothStatic = isStatic[i] && isStatic[j];
+          const eitherMobile = !isStatic[i] || !isStatic[j];
+          const minDist = bothStatic ? 1.5 : eitherMobile ? 3.0 : 2.0;
+
+          if (distSq < minDist * minDist && distSq > 0.001) {
             const dist = Math.sqrt(distSq);
-            const overlap = (MIN_DIST_CLOSE - dist) * 0.5;
+            const overlap = (minDist - dist) * 0.5;
             _push.set(dx / dist * overlap, dy / dist * overlap, dz / dist * overlap);
-            positions[i].sub(_push);
-            positions[j].add(_push);
+
+            // If one is coral and other is mobile, only push the mobile one
+            if (isStatic[i] && !isStatic[j]) {
+              positions[j].add(_push).add(_push); // double push on mobile
+            } else if (!isStatic[i] && isStatic[j]) {
+              positions[i].sub(_push).sub(_push);
+            } else {
+              positions[i].sub(_push);
+              positions[j].add(_push);
+            }
             positions[i].normalize().multiplyScalar(GLOBE_RADIUS * (1 + SPRITE_ALT));
             positions[j].normalize().multiplyScalar(GLOBE_RADIUS * (1 + SPRITE_ALT));
           }
@@ -199,36 +222,24 @@ export class SpeciesLayer {
       }
     }
 
-    // --- Far positions (zoomed out — bigger spread, same direction) ---
-    // Clone close positions and apply stronger collision resolution
-    const farPositions = positions.map(p => p.clone());
-    const MIN_DIST_FAR = 8.0; // much more spread out
-    for (let pass = 0; pass < 5; pass++) {
-      for (let i = 0; i < count; i++) {
-        for (let j = i + 1; j < count; j++) {
-          const dx = farPositions[j].x - farPositions[i].x;
-          const dy = farPositions[j].y - farPositions[i].y;
-          const dz = farPositions[j].z - farPositions[i].z;
-          const distSq = dx * dx + dy * dy + dz * dz;
-          if (distSq < MIN_DIST_FAR * MIN_DIST_FAR && distSq > 0.001) {
-            const dist = Math.sqrt(distSq);
-            const overlap = (MIN_DIST_FAR - dist) * 0.5;
-            _push.set(dx / dist * overlap, dy / dist * overlap, dz / dist * overlap);
-            farPositions[i].sub(_push);
-            farPositions[j].add(_push);
-            farPositions[i].normalize().multiplyScalar(GLOBE_RADIUS * (1 + SPRITE_ALT + 0.02));
-            farPositions[j].normalize().multiplyScalar(GLOBE_RADIUS * (1 + SPRITE_ALT + 0.02));
-          }
-        }
-      }
+    // --- Compute spread offset vectors (fixed direction per instance) ---
+    // offset = resolved_position - raw_position, then extended for far zoom.
+    // This ensures: close zoom → small offset, far zoom → proportionally larger
+    // offset in the SAME direction. No position swaps ever.
+    const offsets: THREE.Vector3[] = [];
+    for (let i = 0; i < count; i++) {
+      offsets.push(positions[i].clone().sub(rawPositions[i]));
     }
 
     // --- Geometry (unit quad) ------------------------------------------------
     const geometry = new THREE.PlaneGeometry(1, 1);
 
     // --- Instance attributes -------------------------------------------------
-    const posArr = new Float32Array(count * 3);    // close position
-    const posFarArr = new Float32Array(count * 3); // far position
+    // instancePos = raw position (true geographic location)
+    // instancePosFar = offset vector (direction to spread)
+    // Shader: finalPos = instancePos + instancePosFar * spreadFactor
+    const posArr = new Float32Array(count * 3);
+    const offsetArr = new Float32Array(count * 3);
     const uvArr = new Float32Array(count * 4);
     const phaseArr = new Float32Array(count);
     const animArr = new Float32Array(count);
@@ -242,17 +253,17 @@ export class SpeciesLayer {
 
     for (let i = 0; i < count; i++) {
       const { sp, spot, rect } = resolved[i];
-      const pos = positions[i];
+      const rawPos = rawPositions[i];
+      const offset = offsets[i];
 
-      const farPos = farPositions[i];
-
-      posArr[i * 3] = pos.x;
-      posArr[i * 3 + 1] = pos.y;
-      posArr[i * 3 + 2] = pos.z;
-      posFarArr[i * 3] = farPos.x;
-      posFarArr[i * 3 + 1] = farPos.y;
-      posFarArr[i * 3 + 2] = farPos.z;
-      this.positions.push(pos);
+      posArr[i * 3] = rawPos.x;
+      posArr[i * 3 + 1] = rawPos.y;
+      posArr[i * 3 + 2] = rawPos.z;
+      // Store offset × 3 so shader can scale up to 3x the collision offset
+      offsetArr[i * 3] = offset.x * 3.0;
+      offsetArr[i * 3 + 1] = offset.y * 3.0;
+      offsetArr[i * 3 + 2] = offset.z * 3.0;
+      this.positions.push(rawPos);
 
       // UV rect (normalized to sheet)
       uvArr[i * 4] = rect.x / sheetWidth;
@@ -317,7 +328,7 @@ export class SpeciesLayer {
     );
     geometry.setAttribute(
       'instancePosFar',
-      new THREE.InstancedBufferAttribute(posFarArr, 3),
+      new THREE.InstancedBufferAttribute(offsetArr, 3),
     );
 
     // --- Material ------------------------------------------------------------
