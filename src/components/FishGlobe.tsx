@@ -249,15 +249,13 @@ export function FishGlobe() {
           globe.renderer.speciesLayer.setHighlight(idx);
         }
       } else {
-        if (hoveredSpecies) {
-          setHoveredSpecies(null);
-          globe.renderer?.speciesLayer.setHighlight(-1);
-        }
+        setHoveredSpecies(null);
+        globe.renderer?.speciesLayer.setHighlight(-1);
         handleRouteHover(e.clientX, e.clientY);
-        (e.currentTarget as HTMLElement).style.cursor = routeTooltip ? 'pointer' : 'default';
+        (e.currentTarget as HTMLElement).style.cursor = 'default';
       }
     },
-    [findHitAtCursor, handleRouteHover, hoveredSpecies, globe.renderer],
+    [findHitAtCursor, handleRouteHover],
   );
 
   const handleClick = useCallback(

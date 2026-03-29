@@ -150,10 +150,12 @@ export function useGlobe() {
   // Build species sprites — called when data + scene are ready
   // -------------------------------------------------------------------------
 
+  const builtRef = useRef(false);
   const buildSprites = useCallback(
     async (species: Species[], migrationRoutes?: MigrationRoute[]) => {
       const renderer = rendererRef.current;
-      if (!renderer) return;
+      if (!renderer || builtRef.current) return;
+      builtRef.current = true;
 
       try {
         // 1. Fetch the spritesheet manifest

@@ -97,7 +97,7 @@ export const speciesVertexShader = `
     if (anim > 0.5) {
       float bodyX = position.x; // -0.5 to 0.5 along the fish
       // Wave amplitude increases from head to tail (head barely moves, tail whips)
-      float amp = (0.5 - bodyX) * 0.08; // 0 at head, 0.08 at tail
+      float amp = (0.5 - bodyX) * 0.35; // 0 at head, 0.35 at tail — visible wave
       // Traveling wave: moves from head to tail
       float waveSpeed = anim > 3.5 ? 8.0 : anim > 0.5 && anim < 1.5 ? 3.0 : 5.0;
       bodyWave = sin(bodyX * 6.28 - t * waveSpeed) * amp;
