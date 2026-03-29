@@ -11,6 +11,7 @@ export interface MigrationRoute {
   name: string;
   species: string;
   nameZh?: string;
+  descriptionZh?: string;
   specCode?: number;
   type: string; // anadromous, catadromous, oceanodromous, etc.
   waypoints: { lat: number; lng: number; label?: string }[];

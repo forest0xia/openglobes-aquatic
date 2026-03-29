@@ -138,7 +138,7 @@ export class SpeciesLayer {
           nameZh: routeNameZh,
           tagline: {
             en: route.description || route.name,
-            zh: match?.taglineZh || route.description || route.name,
+            zh: match?.taglineZh || route.descriptionZh || route.name,
           },
           scientificName: route.species,
           sprite: `${spriteKey}.png`,
