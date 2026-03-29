@@ -304,10 +304,10 @@ export class SpeciesLayer {
     this.material.uniforms.uTime.value = time;
     this.material.uniforms.uCamPos.value.copy(camera.position);
 
-    // Smooth highlight scale animation (lerp toward target)
+    // Smooth highlight scale animation (gentle ease — ~400ms to full)
     const target = this.material.uniforms.uHighlightIdx.value >= 0 ? 1.3 : 1.0;
     const cur = this.material.uniforms.uHighlightScale.value as number;
-    this.material.uniforms.uHighlightScale.value = cur + (target - cur) * 0.15;
+    this.material.uniforms.uHighlightScale.value = cur + (target - cur) * 0.06;
   }
 
   // -------------------------------------------------------------------------

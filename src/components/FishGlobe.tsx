@@ -46,13 +46,40 @@ export function FishGlobe() {
 
   // ── UI state ────────────────────────────────────────────────────────────
   const [selectedSpecies, setSelectedSpecies] = useState<Species | null>(null);
-  const [hoveredSpecies, setHoveredSpecies] = useState<{
-    species: Species;
-    x: number;
-    y: number;
-  } | null>(null);
+  // Hover tooltip managed via ref + DOM manipulation (no React re-render)
+  const tooltipRef = useRef<HTMLDivElement>(null);
+  const hoveredRef = useRef<Species | null>(null);
   const [showControls, setShowControls] = useState(true);
   const hoverThrottleRef = useRef(0);
+
+  const showTooltip = useCallback((species: Species, x: number, y: number) => {
+    hoveredRef.current = species;
+    const el = tooltipRef.current;
+    if (!el) return;
+    el.style.display = 'block';
+    el.style.left = `${x + 16}px`;
+    el.style.top = `${y - 12}px`;
+    const name = species.nameZh || species.name;
+    const sub = species.nameZh ? species.name : '';
+    const desc = species.tagline.zh || species.tagline.en;
+    const tierZh: Record<string, string> = { star: '明星物种', ecosystem: '生态关键', surprise: '惊喜发现' };
+    el.innerHTML = `
+      <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:4px">
+        <span style="font-family:var(--og-font-body);font-size:14px;font-weight:600;color:var(--og-text-primary)">${name}</span>
+        ${sub ? `<span style="font-family:var(--og-font-mono);font-size:10px;color:var(--og-text-tertiary);font-style:italic">${sub}</span>` : ''}
+      </div>
+      <div style="font-family:var(--og-font-body);font-size:12px;color:var(--og-text-secondary);line-height:1.4">${desc}</div>
+      <div style="margin-top:6px;display:flex;gap:8px;flex-wrap:wrap">
+        <span class="og-chip" style="font-size:9px;padding:2px 6px">${tierZh[species.tier] || species.tier}</span>
+        <span class="og-chip" style="font-size:9px;padding:2px 6px">${species.viewingSpots.length}个观测点</span>
+      </div>`;
+  }, []);
+
+  const hideTooltip = useCallback(() => {
+    hoveredRef.current = null;
+    const el = tooltipRef.current;
+    if (el) el.style.display = 'none';
+  }, []);
 
   // ── Build species sprites + migration route fish once data + scene ready ──
   useEffect(() => {
@@ -240,22 +267,23 @@ export function FishGlobe() {
       // Species hover takes priority over route hover
       const hit = findHitAtCursor(e.clientX, e.clientY);
       if (hit) {
-        setHoveredSpecies({ species: hit.species, x: e.clientX, y: e.clientY });
-        setRouteTooltip(null);
+        showTooltip(hit.species, e.clientX, e.clientY);
+        if (routeTooltip) setRouteTooltip(null);
         (e.currentTarget as HTMLElement).style.cursor = 'pointer';
-        // Highlight the hovered instance (1.3x scale in shader)
         if (globe.renderer) {
           const idx = globe.renderer.speciesLayer.findInstanceIndex(hit.species, hit.lat, hit.lng);
           globe.renderer.speciesLayer.setHighlight(idx);
         }
       } else {
-        setHoveredSpecies(null);
-        globe.renderer?.speciesLayer.setHighlight(-1);
+        if (hoveredRef.current) {
+          hideTooltip();
+          globe.renderer?.speciesLayer.setHighlight(-1);
+        }
         handleRouteHover(e.clientX, e.clientY);
         (e.currentTarget as HTMLElement).style.cursor = 'default';
       }
     },
-    [findHitAtCursor, handleRouteHover],
+    [findHitAtCursor, handleRouteHover, showTooltip, hideTooltip, routeTooltip],
   );
 
   const handleClick = useCallback(
@@ -263,7 +291,7 @@ export function FishGlobe() {
       const hit = findHitAtCursor(e.clientX, e.clientY);
       if (hit) {
         setSelectedSpecies(hit.species);
-        setHoveredSpecies(null);
+        hideTooltip();
         // Highlight the selected instance
         if (globe.renderer) {
           const idx = globe.renderer.speciesLayer.findInstanceIndex(hit.species, hit.lat, hit.lng);
@@ -475,74 +503,20 @@ export function FishGlobe() {
         </div>
       )}
 
-      {/* ── Hover tooltip ───────────────────────────────────────────────── */}
-      {hoveredSpecies && !selectedSpecies && (
-        <div
-          className="og-glass"
-          style={{
-            position: 'fixed',
-            left: hoveredSpecies.x + 16,
-            top: hoveredSpecies.y - 12,
-            zIndex: 30,
-            padding: '10px 14px',
-            maxWidth: 280,
-            borderRadius: 'var(--og-radius-md)',
-            pointerEvents: 'none',
-          }}
-        >
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'baseline',
-              gap: 8,
-              marginBottom: 4,
-            }}
-          >
-            <span
-              style={{
-                fontFamily: 'var(--og-font-body)',
-                fontSize: 14,
-                fontWeight: 600,
-                color: 'var(--og-text-primary)',
-              }}
-            >
-              {hoveredSpecies.species.nameZh || hoveredSpecies.species.name}
-            </span>
-            {hoveredSpecies.species.nameZh && (
-              <span
-                style={{
-                  fontFamily: 'var(--og-font-mono)',
-                  fontSize: 10,
-                  color: 'var(--og-text-tertiary)',
-                  fontStyle: 'italic',
-                }}
-              >
-                {hoveredSpecies.species.name}
-              </span>
-            )}
-          </div>
-          <div
-            style={{
-              fontFamily: 'var(--og-font-body)',
-              fontSize: 12,
-              color: 'var(--og-text-secondary)',
-              lineHeight: 1.4,
-            }}
-          >
-            {hoveredSpecies.species.tagline.zh || hoveredSpecies.species.tagline.en}
-          </div>
-          <div
-            style={{ marginTop: 6, display: 'flex', gap: 8, flexWrap: 'wrap' }}
-          >
-            <span className="og-chip" style={{ fontSize: 9, padding: '2px 6px' }}>
-              {{ star: '明星物种', ecosystem: '生态关键', surprise: '惊喜发现' }[hoveredSpecies.species.tier] || hoveredSpecies.species.tier}
-            </span>
-            <span className="og-chip" style={{ fontSize: 9, padding: '2px 6px' }}>
-              {hoveredSpecies.species.viewingSpots.length}个观测点
-            </span>
-          </div>
-        </div>
-      )}
+      {/* ── Hover tooltip (DOM-managed, no React re-render) ────────────── */}
+      <div
+        ref={tooltipRef}
+        className="og-glass"
+        style={{
+          display: 'none',
+          position: 'fixed',
+          zIndex: 30,
+          padding: '10px 14px',
+          maxWidth: 280,
+          borderRadius: 'var(--og-radius-md)',
+          pointerEvents: 'none',
+        }}
+      />
 
       {/* ── Species detail panel (pinned on click) ──────────────────────── */}
       {selectedSpecies && (
