@@ -211,6 +211,7 @@ export class SpeciesLayer {
     const phaseArr = new Float32Array(count);
     const animArr = new Float32Array(count);
     const sizeArr = new Float32Array(count * 2);
+    const colorArr = new Float32Array(count * 3); // RGB glow color per instance
 
     this.speciesRefs = [];
     this.spotRefs = [];
@@ -249,6 +250,15 @@ export class SpeciesLayer {
       sizeArr[i * 2 + 1] = worldH;
       this.scales.push(Math.max(worldW, worldH));
 
+      // Glow color from species display.color
+      const hexColor = sp.display.color || '#4cc9f0';
+      const r = parseInt(hexColor.slice(1, 3), 16) / 255;
+      const g = parseInt(hexColor.slice(3, 5), 16) / 255;
+      const b = parseInt(hexColor.slice(5, 7), 16) / 255;
+      colorArr[i * 3] = r;
+      colorArr[i * 3 + 1] = g;
+      colorArr[i * 3 + 2] = b;
+
       this.speciesRefs.push(sp);
       this.spotRefs.push({ lat: spot.lat, lng: spot.lng });
     }
@@ -273,6 +283,10 @@ export class SpeciesLayer {
     geometry.setAttribute(
       'instanceSize',
       new THREE.InstancedBufferAttribute(sizeArr, 2),
+    );
+    geometry.setAttribute(
+      'instanceColor',
+      new THREE.InstancedBufferAttribute(colorArr, 3),
     );
 
     // --- Material ------------------------------------------------------------
