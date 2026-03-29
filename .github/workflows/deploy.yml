@@ -27,12 +27,6 @@ jobs:
           git clone --depth 1 https://github.com/forest0xia/openglobes-etl.git /tmp/etl
           cp -r /tmp/etl/output/aquatic ./data
 
-      - name: Build core engine
-        run: |
-          git clone --depth 1 https://github.com/forest0xia/openglobes-core.git ../openglobes-core
-          cd ../openglobes-core && npm install --ignore-scripts && npm run build
-          cd -
-
       - uses: pnpm/action-setup@v4
 
       - uses: actions/setup-node@v4
