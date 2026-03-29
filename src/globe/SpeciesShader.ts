@@ -40,17 +40,22 @@ export const speciesVertexShader = `
     }
 
     // ── Zoom-aware spread ──────────────────────────────────────────
+    // When globe is small (camera far), push fish apart so they don't
+    // stack on top of each other. Spread increases with distance.
     float camDist = length(uCamPos);
-    float spreadFactor = smoothstep(150.0, 350.0, camDist);
+    float spreadFactor = smoothstep(140.0, 300.0, camDist); // 0 close, 1 far
     if (spreadFactor > 0.001) {
       float idx = instancePhase;
       vec3 nrm = normalize(pos);
       vec3 tan = normalize(cross(vec3(0.0, 1.0, 0.0), nrm));
       if (length(tan) < 0.001) tan = normalize(cross(vec3(1.0, 0.0, 0.0), nrm));
       vec3 btn = cross(nrm, tan);
-      pos += tan * (hash(idx) - 0.5) * 4.0 * spreadFactor
-           + btn * (hash(idx * 2.0) - 0.5) * 4.0 * spreadFactor
-           + nrm * hash(idx * 3.0) * 2.0 * spreadFactor;
+      // Stronger spread: up to 8 world units lateral, 3 outward
+      float spreadStrength = 8.0 * spreadFactor;
+      float outStrength = 3.0 * spreadFactor;
+      pos += tan * (hash(idx) - 0.5) * spreadStrength
+           + btn * (hash(idx * 2.0) - 0.5) * spreadStrength
+           + nrm * hash(idx * 3.0) * outStrength;
     }
 
     // ── Swimming path displacement ─────────────────────────────────
@@ -82,6 +87,12 @@ export const speciesVertexShader = `
     // ── Billboard ──────────────────────────────────────────────────
     vec4 mvPos = modelViewMatrix * vec4(pos, 1.0);
     vec2 size = instanceSize;
+
+    // Minimum size: ensure fish never shrink below a visible threshold.
+    // At camDist=350 (default zoom out), ensure at least ~0.8 world units.
+    // The further the camera, the larger the minimum (compensates for distance).
+    float minSize = 0.4 + smoothstep(150.0, 400.0, camDist) * 0.8;
+    size = max(size, vec2(minSize));
 
     // Smooth highlight scale
     if (uHighlightIdx >= 0 && gl_InstanceID == uHighlightIdx) {
