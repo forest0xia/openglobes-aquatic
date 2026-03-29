@@ -108,9 +108,10 @@ export function useGlobe() {
         GEO_LABELS,
       );
 
-      // Per-frame label update (backface culling)
+      // Label backface culling every 10 frames (not every frame)
+      let labelFrame = 0;
       rendererRef.current.onFrame(() => {
-        if (labelsManagerRef.current) {
+        if (++labelFrame % 10 === 0 && labelsManagerRef.current) {
           labelsManagerRef.current.update(rendererRef.current!.getCamera());
         }
       });

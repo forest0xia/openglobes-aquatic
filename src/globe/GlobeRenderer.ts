@@ -49,10 +49,9 @@ export class GlobeRenderer {
   readonly trailLayer: TrailLayer;
 
   private frameId = 0;
-  private frameCount = 0;
   private lastTime = 0;
   private elapsedTime = 0;
-  private onFrameCallbacks: ((dt: number) => void)[] = [];
+  private onFrameCb: ((dt: number) => void) | null = null;
   private container: HTMLElement | null = null;
 
   constructor() {
@@ -169,9 +168,9 @@ export class GlobeRenderer {
     return { x: v.x, y: v.y, z: v.z };
   }
 
-  onFrame(cb: (dt: number) => void): () => void {
-    this.onFrameCallbacks.push(cb);
-    return () => { this.onFrameCallbacks = this.onFrameCallbacks.filter(c => c !== cb); };
+  /** Set the per-frame callback (replaces any previous — only one allowed). */
+  onFrame(cb: (dt: number) => void): void {
+    this.onFrameCb = cb;
   }
 
   /** Fly camera to look at a lat/lng. */
@@ -285,20 +284,10 @@ export class GlobeRenderer {
     // Update trails
     this.trailLayer.update(dt);
 
-    // External callbacks
-    for (const cb of this.onFrameCallbacks) cb(dt);
+    // External callback
+    this.onFrameCb?.(dt);
 
     this.renderer.render(this.scene, this.camera);
-
-    // Performance logging every 600 frames (~10s)
-    this.frameCount++;
-    if (this.frameCount % 600 === 0) {
-      const info = this.renderer.info;
-      console.log(
-        `[perf] frame ${this.frameCount}: geometries=${info.memory.geometries}, textures=${info.memory.textures}, programs=${info.programs?.length ?? '?'}, calls=${info.render.calls}, triangles=${info.render.triangles}, points=${info.render.points}, scene.children=${this.scene.children.length}`,
-      );
-      info.reset();
-    }
   };
 
   // ─── Resize ─────────────────────────────────────────────────────────────

@@ -88,39 +88,35 @@ export function FishGlobe() {
     }
   }, [species, migrationRoutes, globe.sceneReady, globe.buildSprites]);
 
-  // ── Build migration trails ──────────────────────────────────────────────
-  // Convert core-style TrailDatum[] from migrations/currents into TrailData[]
-  // that the new TrailLayer understands.
+  // ── Build migration trails (debounced — slider drags don't rebuild every pixel)
+  const trailTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     if (!globe.sceneReady || !globe.renderer) return;
 
-    const coreTrails = [
-      ...(showMigrations ? getMigrationTrails(maxMigrationRoutes) : []),
-      ...(showCurrents ? OCEAN_CURRENTS : []),
-    ];
+    // Debounce: wait 300ms after last change before rebuilding
+    if (trailTimerRef.current) clearTimeout(trailTimerRef.current);
+    trailTimerRef.current = setTimeout(() => {
+      const renderer = globe.renderer;
+      if (!renderer) return;
 
-    // Adapt from core TrailDatum shape → TrailData shape
-    const trailData: TrailData[] = coreTrails.map((t: any) => ({
-      waypoints: t.waypoints as { lat: number; lng: number }[],
-      color: Array.isArray(t.color) ? t.color[0] : (t.color ?? '#4cc9f0'),
-      width: t.width ?? 1.5,
-      speed: t.speed,
-    }));
+      const coreTrails = [
+        ...(showMigrations ? getMigrationTrails(maxMigrationRoutes) : []),
+        ...(showCurrents ? OCEAN_CURRENTS : []),
+      ];
 
-    const r = globe.renderer.getRenderer();
-    const resolution = new THREE.Vector2(
-      r.domElement.width,
-      r.domElement.height,
-    );
-    globe.renderer.trailLayer.build(trailData, resolution);
-  }, [
-    globe.sceneReady,
-    globe.renderer,
-    showMigrations,
-    showCurrents,
-    maxMigrationRoutes,
-    migrationRoutes,
-  ]);
+      const trailData: TrailData[] = coreTrails.map((t: any) => ({
+        waypoints: t.waypoints as { lat: number; lng: number }[],
+        color: Array.isArray(t.color) ? t.color[0] : (t.color ?? '#4cc9f0'),
+        width: t.width ?? 1.5,
+        speed: t.speed,
+      }));
+
+      const r = renderer.getRenderer();
+      renderer.trailLayer.build(trailData, new THREE.Vector2(r.domElement.width, r.domElement.height));
+    }, 300);
+
+    return () => { if (trailTimerRef.current) clearTimeout(trailTimerRef.current); };
+  }, [globe.sceneReady, showMigrations, showCurrents, maxMigrationRoutes]);
 
   // ── Hit testing — find species + location at cursor ─────────────────────
   const findHitAtCursor = useCallback(
