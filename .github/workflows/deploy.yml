@@ -25,6 +25,7 @@ jobs:
       - name: Fetch aquatic data from ETL repo
         run: |
           git clone --depth 1 https://github.com/forest0xia/openglobes-etl.git /tmp/etl
+          rm -rf ./data
           cp -r /tmp/etl/output/aquatic ./data
 
       - uses: pnpm/action-setup@v4
