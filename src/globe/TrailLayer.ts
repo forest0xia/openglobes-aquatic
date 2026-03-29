@@ -16,6 +16,7 @@ export class TrailLayer {
   private lines: Line2[] = [];
   private materials: LineMaterial[] = [];
   private time = 0;
+  private frameCount = 0;
 
   constructor(scene: THREE.Scene) {
     this.scene = scene;
@@ -24,36 +25,38 @@ export class TrailLayer {
   build(trails: TrailData[], resolution: THREE.Vector2): void {
     this.dispose();
 
+    const v = new THREE.Vector3();
+
     for (const trail of trails) {
-      // Interpolate waypoints to create smooth curve
       const points: number[] = [];
-      const v = new THREE.Vector3();
 
       for (let i = 0; i < trail.waypoints.length - 1; i++) {
         const from = trail.waypoints[i];
         const to = trail.waypoints[i + 1];
-        const steps = 20; // interpolation steps per segment
+        // Reduced interpolation: 8 steps (was 20) — 60% fewer vertices
+        const steps = 8;
         for (let s = 0; s <= steps; s++) {
           const t = s / steps;
-          const lat = from.lat + (to.lat - from.lat) * t;
-          const lng = from.lng + (to.lng - from.lng) * t;
-          latLngToVec3(lat, lng, GLOBE_RADIUS, 0.005, v); // slightly above surface
+          latLngToVec3(
+            from.lat + (to.lat - from.lat) * t,
+            from.lng + (to.lng - from.lng) * t,
+            GLOBE_RADIUS, 0.005, v,
+          );
           points.push(v.x, v.y, v.z);
         }
       }
 
-      if (points.length < 6) continue; // need at least 2 points
+      if (points.length < 6) continue;
 
       const geometry = new LineGeometry();
       geometry.setPositions(points);
 
-      const color = new THREE.Color(trail.color || '#4cc9f0');
       const material = new LineMaterial({
-        color: color.getHex(),
-        linewidth: trail.width ?? 1.5, // pixels
+        color: new THREE.Color(trail.color || '#4cc9f0').getHex(),
+        linewidth: trail.width ?? 1.5,
         transparent: true,
         opacity: 0.4,
-        resolution: resolution,
+        resolution,
         dashed: true,
         dashScale: 1,
         dashSize: 3,
@@ -68,18 +71,20 @@ export class TrailLayer {
     }
   }
 
-  /** Animate dash offset for flowing effect */
+  /** Animate dash offset — only update every 3 frames to reduce overhead. */
   update(dt: number): void {
     this.time += dt;
-    for (const mat of this.materials) {
-      mat.dashOffset = -this.time * 2; // flow speed
+    this.frameCount++;
+    // 91 materials × dashOffset write is expensive — throttle to every 3rd frame
+    if (this.frameCount % 3 !== 0) return;
+    const offset = -this.time * 2;
+    for (let i = 0, len = this.materials.length; i < len; i++) {
+      this.materials[i].dashOffset = offset;
     }
   }
 
   setVisible(visible: boolean): void {
-    for (const line of this.lines) {
-      line.visible = visible;
-    }
+    for (const line of this.lines) line.visible = visible;
   }
 
   dispose(): void {
@@ -87,9 +92,7 @@ export class TrailLayer {
       this.scene.remove(line);
       line.geometry.dispose();
     }
-    for (const mat of this.materials) {
-      mat.dispose();
-    }
+    for (const mat of this.materials) mat.dispose();
     this.lines = [];
     this.materials = [];
   }

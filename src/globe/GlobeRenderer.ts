@@ -265,10 +265,14 @@ export class GlobeRenderer {
     );
     this.camera.lookAt(this.curTarget);
 
-    // Dynamic near/far
-    this.camera.near = Math.max(this.curDist * 0.01, 0.1);
-    this.camera.far = Math.max(this.curDist * 100, 2000);
-    this.camera.updateProjectionMatrix();
+    // Dynamic near/far — only update projection when values actually change
+    const newNear = Math.max(this.curDist * 0.01, 0.1);
+    const newFar = Math.max(this.curDist * 100, 2000);
+    if (Math.abs(this.camera.near - newNear) > 0.01 || Math.abs(this.camera.far - newFar) > 1) {
+      this.camera.near = newNear;
+      this.camera.far = newFar;
+      this.camera.updateProjectionMatrix();
+    }
 
     // Fill light follows camera, intensity fades with distance
     this.fillLight.position.copy(this.camera.position);
