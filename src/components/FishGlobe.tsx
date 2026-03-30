@@ -13,6 +13,7 @@ import {
 } from '../data/migrations';
 import { OCEAN_CURRENTS, CURRENTS_DEFAULT_VISIBLE } from '../data/currents';
 import { GLOBE_RADIUS } from '../globe/coordUtils';
+import { playHoverSound, playClickSound, getSoundLabel } from '../audio/FishAudio';
 import type { TrailData } from '../globe/TrailLayer';
 
 const _hitPoint = new THREE.Vector3(); // reusable for route hover ray hit
@@ -65,6 +66,7 @@ export function FishGlobe() {
     const sub = species.nameZh ? species.name : '';
     const desc = species.tagline.zh || species.tagline.en;
     const tierZh: Record<string, string> = { star: '明星物种', ecosystem: '生态关键', surprise: '惊喜发现' };
+    const soundLabel = getSoundLabel(species);
     el.innerHTML = `
       <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:4px">
         <span style="font-family:var(--og-font-body);font-size:14px;font-weight:600;color:var(--og-text-primary)">${name}</span>
@@ -74,6 +76,7 @@ export function FishGlobe() {
       <div style="margin-top:6px;display:flex;gap:8px;flex-wrap:wrap">
         <span class="og-chip" style="font-size:9px;padding:2px 6px">${tierZh[species.tier] || species.tier}</span>
         <span class="og-chip" style="font-size:9px;padding:2px 6px">${species.viewingSpots.length}个观测点</span>
+        <span class="og-chip" style="font-size:9px;padding:2px 6px">🔊 ${soundLabel}</span>
       </div>`;
   }, []);
 
@@ -287,6 +290,7 @@ export function FishGlobe() {
       const hit = findHitAtCursor(e.clientX, e.clientY);
       if (hit) {
         showTooltip(hit.species, e.clientX, e.clientY);
+        playHoverSound(hit.species);
         if (routeTooltipRef.current) routeTooltipRef.current.style.display = 'none';
         (e.currentTarget as HTMLElement).style.cursor = 'pointer';
         if (globe.renderer) {
@@ -312,6 +316,7 @@ export function FishGlobe() {
       const hit = findHitAtCursor(e.clientX, e.clientY);
       if (hit) {
         setSelectedSpecies(hit.species);
+        playClickSound(hit.species);
         hideTooltip();
         // Highlight the selected instance
         if (globe.renderer) {
@@ -696,6 +701,17 @@ export function FishGlobe() {
               <span className="og-chip" style={{ fontSize: 10, padding: '3px 8px' }}>
                 {{ slow_cruise: '缓慢巡游', schooling: '群游', hovering: '悬停', drifting: '漂流', darting: '快速冲刺', static: '固着', none: '固着' }[selectedSpecies.display.animation] || selectedSpecies.display.animation}
               </span>
+              <button
+                type="button"
+                className="og-chip"
+                style={{ fontSize: 10, padding: '3px 8px', cursor: 'pointer' }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  playClickSound(selectedSpecies);
+                }}
+              >
+                🔊 {getSoundLabel(selectedSpecies)}
+              </button>
             </div>
 
             {/* Viewing spots */}
