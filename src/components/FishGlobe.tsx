@@ -16,6 +16,8 @@ import { GLOBE_RADIUS } from '../globe/coordUtils';
 import type { TrailData } from '../globe/TrailLayer';
 
 const _hitPoint = new THREE.Vector3(); // reusable for route hover ray hit
+const _uwRayOrigin = new THREE.Vector3();
+const _uwRayDir = new THREE.Vector3();
 
 // ---------------------------------------------------------------------------
 // FishGlobe — main application shell.
@@ -268,8 +270,8 @@ export function FishGlobe() {
 
   const handlePointerMove = useCallback(
     (e: React.PointerEvent) => {
-      // Skip ALL hover processing during globe rotation drag
-      if (isDraggingRef.current) return;
+      // Skip ALL hover processing during globe rotation drag or underwater mode
+      if (isDraggingRef.current || globe.isUnderwater) return;
 
       // Throttle to every 200ms and skip if pointer barely moved
       const now = Date.now();
@@ -306,6 +308,7 @@ export function FishGlobe() {
 
   const handleClick = useCallback(
     (e: React.MouseEvent) => {
+      if (globe.isUnderwater) return; // no click handling in underwater mode
       const hit = findHitAtCursor(e.clientX, e.clientY);
       if (hit) {
         setSelectedSpecies(hit.species);
@@ -321,6 +324,76 @@ export function FishGlobe() {
     [findHitAtCursor, globe],
   );
 
+  // ── Double-click to dive into underwater view ──────────────────────────
+  const handleDoubleClick = useCallback(
+    (e: React.MouseEvent) => {
+      if (globe.isUnderwater || !globe.renderer) return;
+
+      // Raycast to find where on the globe the user double-clicked
+      const r = globe.renderer.getRenderer();
+      const rect = r.domElement.getBoundingClientRect();
+      const ndcX = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      const ndcY = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+
+      const camera = globe.renderer.getCamera();
+      const raycaster = new THREE.Raycaster();
+      raycaster.setFromCamera(new THREE.Vector2(ndcX, ndcY), camera);
+
+      // Ray-sphere intersection
+      const origin = raycaster.ray.origin;
+      const dir = raycaster.ray.direction;
+      const a = dir.dot(dir);
+      const b = 2 * origin.dot(dir);
+      const c = origin.dot(origin) - GLOBE_RADIUS * GLOBE_RADIUS;
+      const discriminant = b * b - 4 * a * c;
+      if (discriminant < 0) return;
+
+      const t = (-b - Math.sqrt(discriminant)) / (2 * a);
+      if (t < 0) return;
+
+      const hp = origin.clone().addScaledVector(dir, t);
+      const rr = hp.length();
+      const hitLat = Math.asin(hp.y / rr) * (180 / Math.PI);
+      const hitLng = Math.atan2(hp.x, hp.z) * (180 / Math.PI);
+
+      // Find species near the click point (within ~15 degrees)
+      const nearbySpecies: typeof species = [];
+      const seen = new Set<number>();
+      for (const sp of species) {
+        for (const spot of sp.viewingSpots) {
+          const dLat = spot.lat - hitLat;
+          const dLng = spot.lng - hitLng;
+          if (dLat * dLat + dLng * dLng < 225 && !seen.has(sp.aphiaId)) { // 15 deg radius
+            nearbySpecies.push(sp);
+            seen.add(sp.aphiaId);
+            break;
+          }
+        }
+        if (nearbySpecies.length >= 20) break; // cap at 20 species
+      }
+
+      // If no species nearby, grab some random ones for visual interest
+      if (nearbySpecies.length < 5) {
+        const shuffled = [...species].sort(() => Math.random() - 0.5);
+        for (const sp of shuffled) {
+          if (!seen.has(sp.aphiaId)) {
+            nearbySpecies.push(sp);
+            seen.add(sp.aphiaId);
+          }
+          if (nearbySpecies.length >= 12) break;
+        }
+      }
+
+      // Close any open panels
+      setSelectedSpecies(null);
+      hideTooltip();
+
+      // Dive!
+      globe.enterUnderwater(hitLat, hitLng, nearbySpecies);
+    },
+    [globe, species, hideTooltip],
+  );
+
   // ── Render ──────────────────────────────────────────────────────────────
   return (
     <div
@@ -330,6 +403,7 @@ export function FishGlobe() {
       onPointerLeave={handlePointerUp}
       onPointerMove={handlePointerMove}
       onClick={handleClick}
+      onDoubleClick={handleDoubleClick}
       style={{
         position: 'relative',
         width: '100vw',
@@ -750,6 +824,112 @@ export function FishGlobe() {
       >
         {showControls ? 'Close' : 'Controls'}
       </button>
+
+      {/* ── Underwater mode UI ─────────────────────────────────────────── */}
+      {globe.isUnderwater && (
+        <>
+          {/* Surface button */}
+          <button
+            type="button"
+            className="og-glass uw-surface-btn"
+            onClick={() => globe.exitUnderwater()}
+            style={{
+              position: 'absolute',
+              top: 20,
+              right: 20,
+              zIndex: 50,
+              padding: '10px 20px',
+              cursor: 'pointer',
+              border: '1px solid rgba(100, 200, 255, 0.3)',
+              borderRadius: 'var(--og-radius-md)',
+              fontFamily: 'var(--og-font-display)',
+              fontSize: 14,
+              fontWeight: 600,
+              color: '#88ddff',
+              background: 'rgba(4, 24, 48, 0.7)',
+              backdropFilter: 'blur(8px)',
+              transition: 'all 0.3s ease',
+              animation: 'fadeIn 800ms ease forwards',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = 'rgba(20, 60, 100, 0.8)';
+              e.currentTarget.style.borderColor = 'rgba(100, 200, 255, 0.6)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'rgba(4, 24, 48, 0.7)';
+              e.currentTarget.style.borderColor = 'rgba(100, 200, 255, 0.3)';
+            }}
+          >
+            浮出水面
+          </button>
+
+          {/* Movement hints */}
+          <div
+            className="uw-hints"
+            style={{
+              position: 'absolute',
+              bottom: 40,
+              left: '50%',
+              transform: 'translateX(-50%)',
+              zIndex: 50,
+              display: 'flex',
+              gap: 12,
+              alignItems: 'center',
+              animation: 'fadeIn 1200ms ease forwards',
+              opacity: 0,
+            }}
+          >
+            <span className="og-chip" style={{ fontSize: 10, padding: '4px 10px', background: 'rgba(4, 24, 48, 0.6)' }}>
+              WASD / 方向键 移动
+            </span>
+            <span className="og-chip" style={{ fontSize: 10, padding: '4px 10px', background: 'rgba(4, 24, 48, 0.6)' }}>
+              鼠标拖拽 环顾
+            </span>
+            <span className="og-chip" style={{ fontSize: 10, padding: '4px 10px', background: 'rgba(4, 24, 48, 0.6)' }}>
+              空格 上浮 · Shift 下潜
+            </span>
+          </div>
+
+          {/* Underwater vignette overlay */}
+          <div
+            className="uw-vignette"
+            style={{
+              position: 'absolute',
+              inset: 0,
+              pointerEvents: 'none',
+              zIndex: 40,
+              background: 'radial-gradient(ellipse at center, transparent 50%, rgba(0, 10, 30, 0.4) 100%)',
+              animation: 'fadeIn 600ms ease forwards',
+            }}
+          />
+        </>
+      )}
+
+      {/* ── Double-click hint (globe mode) ──────────────────────────────── */}
+      {!globe.isUnderwater && (
+        <div
+          style={{
+            position: 'absolute',
+            bottom: 40,
+            right: 16,
+            zIndex: 10,
+            opacity: 0.3,
+            transition: 'opacity 0.3s',
+          }}
+          onMouseEnter={(e) => (e.currentTarget.style.opacity = '0.7')}
+          onMouseLeave={(e) => (e.currentTarget.style.opacity = '0.3')}
+        >
+          <span
+            style={{
+              fontFamily: 'var(--og-font-body)',
+              fontSize: 10,
+              color: 'var(--og-text-tertiary)',
+            }}
+          >
+            双击海面潜入水下
+          </span>
+        </div>
+      )}
 
       {/* ── Attribution ─────────────────────────────────────────────────── */}
       <div
