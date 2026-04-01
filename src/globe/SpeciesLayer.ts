@@ -297,6 +297,11 @@ export class SpeciesLayer {
   // highlight — set which instance is hovered/selected (1.3x scale in shader)
   // -------------------------------------------------------------------------
 
+  /** Show or hide the entire species layer. */
+  setVisible(visible: boolean): void {
+    if (this.mesh) this.mesh.visible = visible;
+  }
+
   /** Set the highlighted instance index. -1 = none. */
   setHighlight(idx: number): void {
     if (this.material) {

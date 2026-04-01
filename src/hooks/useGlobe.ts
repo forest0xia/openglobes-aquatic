@@ -7,6 +7,7 @@ import { GEO_LABELS } from '../data/geoLabels';
 import { addStep, completeStep } from '../utils/loadProgress';
 import type { Species } from './useSpeciesData';
 import type { MigrationRoute } from '../data/migrations';
+import type { UnderwaterFishData } from '../globe/UnderwaterScene';
 
 /** Map an AquaticTheme to GlobeThemeConfig consumed by GlobeRenderer. */
 function toGlobeThemeConfig(
@@ -83,6 +84,9 @@ export function useGlobe() {
     'continent',
     'island',
   ]);
+  const [isUnderwater, setIsUnderwater] = useState(false);
+  const atlasTextureRef = useRef<THREE.Texture | null>(null);
+  const spriteManifestRef = useRef<{ sprites: Record<string, { x: number; y: number; w: number; h: number }>; sheetWidth: number; sheetHeight: number } | null>(null);
 
   // -------------------------------------------------------------------------
   // containerRef — create renderer + mount into the DOM element
@@ -204,6 +208,14 @@ export function useGlobe() {
           },
         );
 
+        // Store references for underwater scene
+        atlasTextureRef.current = atlasTexture;
+        spriteManifestRef.current = {
+          sprites: manifest.sprites,
+          sheetWidth: sheet.width,
+          sheetHeight: sheet.height,
+        };
+
         // 4. Build the SpeciesLayer
         renderer.speciesLayer.build(
           species,
@@ -238,6 +250,54 @@ export function useGlobe() {
   );
 
   // -------------------------------------------------------------------------
+  // Underwater dive — enter/exit immersive underwater view
+  // -------------------------------------------------------------------------
+
+  // Register underwater change callback when renderer is ready
+  useEffect(() => {
+    if (!rendererRef.current || !sceneReady) return;
+    rendererRef.current.onUnderwaterChange((uw) => setIsUnderwater(uw));
+  }, [sceneReady]);
+
+  const enterUnderwater = useCallback(
+    (lat: number, lng: number, nearbySpecies: Species[]) => {
+      const renderer = rendererRef.current;
+      if (!renderer) return;
+
+      const manifest = spriteManifestRef.current;
+      const atlas = atlasTextureRef.current;
+
+      // Prepare fish data for the underwater scene
+      const fishData: UnderwaterFishData[] = [];
+      if (manifest) {
+        for (const sp of nearbySpecies) {
+          const spriteName = sp.sprite.replace('.png', '');
+          const rect = manifest.sprites[spriteName];
+          if (!rect) continue;
+          fishData.push({
+            species: sp,
+            uvRect: rect,
+            sheetWidth: manifest.sheetWidth,
+            sheetHeight: manifest.sheetHeight,
+          });
+        }
+      }
+
+      // First fly to the location, then dive
+      renderer.flyTo(lat, lng, 130, 1000);
+      // Start dive after a short delay for the flyTo to settle
+      setTimeout(() => {
+        renderer.enterUnderwater(lat, lng, atlas, fishData);
+      }, 600);
+    },
+    [],
+  );
+
+  const exitUnderwater = useCallback(() => {
+    rendererRef.current?.exitUnderwater();
+  }, []);
+
+  // -------------------------------------------------------------------------
   // Cleanup
   // -------------------------------------------------------------------------
 
@@ -264,5 +324,8 @@ export function useGlobe() {
     setLabelTypes,
     buildSprites,
     flyTo,
+    isUnderwater,
+    enterUnderwater,
+    exitUnderwater,
   };
 }

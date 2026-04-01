@@ -3,6 +3,7 @@ import { createEarthMesh, type EarthMeshOptions } from './EarthMesh';
 import { createAtmosphere, type AtmosphereConfig } from './AtmosphereShader';
 import { SpeciesLayer } from './SpeciesLayer';
 import { TrailLayer } from './TrailLayer';
+import { UnderwaterScene, type UnderwaterFishData } from './UnderwaterScene';
 import { latLngToVec3, GLOBE_RADIUS } from './coordUtils';
 
 // ---------------------------------------------------------------------------
@@ -47,6 +48,22 @@ export class GlobeRenderer {
 
   readonly speciesLayer: SpeciesLayer;
   readonly trailLayer: TrailLayer;
+  readonly underwaterScene: UnderwaterScene;
+
+  // Underwater mode state
+  private _isUnderwater = false;
+  private uwTransition = 0; // 0 = globe, 1 = fully underwater
+  private uwTransitionDir: 'in' | 'out' | null = null;
+  private uwDiveTarget = new THREE.Vector3();
+  private uwCamYaw = 0;
+  private uwCamPitch = 0;
+  private uwCamPos = new THREE.Vector3();
+  private uwMouseLook = false;
+  private uwLastMouse = { x: 0, y: 0 };
+  private uwKeys = new Set<string>();
+  private savedBackground: THREE.Color | THREE.Texture | null = null;
+  private savedFog: THREE.Fog | THREE.FogExp2 | null = null;
+  private onUnderwaterChangeCb: ((isUnderwater: boolean) => void) | null = null;
 
   private frameId = 0;
   private lastTime = 0;
@@ -86,6 +103,8 @@ export class GlobeRenderer {
     // Layers
     this.speciesLayer = new SpeciesLayer(this.scene);
     this.trailLayer = new TrailLayer(this.scene);
+    this.underwaterScene = new UnderwaterScene();
+    this.scene.add(this.underwaterScene.group);
   }
 
   // ─── Mount ──────────────────────────────────────────────────────────────
@@ -109,6 +128,13 @@ export class GlobeRenderer {
     el.addEventListener('touchstart', this.onTouchStart, { passive: false });
     el.addEventListener('touchmove', this.onTouchMove, { passive: false });
     el.addEventListener('touchend', this.onTouchEnd);
+
+    // Underwater free-look controls
+    el.addEventListener('mousedown', this.onUwMouseDown);
+    el.addEventListener('mousemove', this.onUwMouseMove);
+    el.addEventListener('mouseup', this.onUwMouseUp);
+    document.addEventListener('keydown', this.onUwKeyDown);
+    document.addEventListener('keyup', this.onUwKeyUp);
 
     // Pause rendering when tab is hidden — saves GPU/CPU
     document.addEventListener('visibilitychange', this.onVisibilityChange);
@@ -176,6 +202,226 @@ export class GlobeRenderer {
     this.onFrameCb = cb;
   }
 
+  /** Register a callback for underwater mode changes. */
+  onUnderwaterChange(cb: (isUnderwater: boolean) => void): void {
+    this.onUnderwaterChangeCb = cb;
+  }
+
+  /** Whether the scene is currently in underwater mode. */
+  get isUnderwater(): boolean { return this._isUnderwater; }
+
+  // ─── Underwater Mode ─────────────────────────────────────────────────
+
+  /**
+   * Dive into the ocean at the given lat/lng.
+   * Transitions the camera from globe view into an immersive underwater scene.
+   */
+  enterUnderwater(
+    lat: number,
+    lng: number,
+    atlasTexture: THREE.Texture | null,
+    nearbyFish: UnderwaterFishData[],
+  ): void {
+    if (this._isUnderwater) return;
+
+    // Compute the dive point on the globe surface
+    this.uwDiveTarget = latLngToVec3(lat, lng, GLOBE_RADIUS, 0);
+
+    // Build the underwater scene
+    this.underwaterScene.build(atlasTexture, nearbyFish);
+
+    // Position the underwater group at the dive point
+    // The underwater scene is centered at origin; we place it there
+    // and move the camera into it during transition
+    this.underwaterScene.group.position.set(0, 0, 0);
+
+    // Save current scene state
+    this.savedBackground = this.scene.background as THREE.Color | null;
+    this.savedFog = this.scene.fog;
+
+    // Start transition
+    this._isUnderwater = true;
+    this.uwTransition = 0;
+    this.uwTransitionDir = 'in';
+
+    // Initialize underwater camera state
+    this.uwCamPos.set(0, 0, 0);
+    this.uwCamYaw = 0;
+    this.uwCamPitch = 0;
+
+    this.onUnderwaterChangeCb?.(true);
+  }
+
+  /** Exit underwater mode and return to the globe view. */
+  exitUnderwater(): void {
+    if (!this._isUnderwater) return;
+    this.uwTransitionDir = 'out';
+  }
+
+  /** Underwater mouse-look handlers. */
+  private onUwMouseDown = (e: MouseEvent): void => {
+    if (!this._isUnderwater || this.uwTransitionDir) return;
+    this.uwMouseLook = true;
+    this.uwLastMouse.x = e.clientX;
+    this.uwLastMouse.y = e.clientY;
+  };
+
+  private onUwMouseMove = (e: MouseEvent): void => {
+    if (!this.uwMouseLook || !this._isUnderwater) return;
+    const dx = e.clientX - this.uwLastMouse.x;
+    const dy = e.clientY - this.uwLastMouse.y;
+    this.uwLastMouse.x = e.clientX;
+    this.uwLastMouse.y = e.clientY;
+
+    this.uwCamYaw -= dx * 0.003;
+    this.uwCamPitch = Math.max(-1.2, Math.min(1.2,
+      this.uwCamPitch - dy * 0.003));
+  };
+
+  private onUwMouseUp = (): void => {
+    this.uwMouseLook = false;
+  };
+
+  private onUwKeyDown = (e: KeyboardEvent): void => {
+    if (!this._isUnderwater) return;
+    this.uwKeys.add(e.key.toLowerCase());
+  };
+
+  private onUwKeyUp = (e: KeyboardEvent): void => {
+    this.uwKeys.delete(e.key.toLowerCase());
+  };
+
+  // ─── Underwater animation tick ─────────────────────────────────────────
+
+  private animateUnderwater(dt: number): void {
+    const TRANSITION_SPEED = 1.2; // full transition in ~0.8s
+
+    if (this.uwTransitionDir === 'in') {
+      this.uwTransition = Math.min(1, this.uwTransition + dt * TRANSITION_SPEED);
+      if (this.uwTransition >= 1) {
+        this.uwTransitionDir = null;
+        // Fully underwater — hide globe elements
+        if (this.earth) this.earth.visible = false;
+        if (this.atmo) {
+          this.atmo.rim.visible = false;
+          this.atmo.haze.visible = false;
+        }
+        this.speciesLayer.setVisible(false);
+        this.trailLayer.setVisible(false);
+
+        // Apply underwater scene
+        this.scene.background = new THREE.Color(0x041830);
+        this.scene.fog = this.underwaterScene.createFog();
+        this.underwaterScene.show();
+      }
+    } else if (this.uwTransitionDir === 'out') {
+      this.uwTransition = Math.max(0, this.uwTransition - dt * TRANSITION_SPEED);
+      if (this.uwTransition <= 0) {
+        this.uwTransitionDir = null;
+        this._isUnderwater = false;
+        this.uwKeys.clear();
+        this.uwMouseLook = false;
+
+        // Restore globe elements
+        if (this.earth) this.earth.visible = true;
+        if (this.atmo) {
+          this.atmo.rim.visible = true;
+          this.atmo.haze.visible = true;
+        }
+        this.speciesLayer.setVisible(true);
+        this.trailLayer.setVisible(true);
+
+        // Restore scene
+        if (this.savedBackground) this.scene.background = this.savedBackground;
+        this.scene.fog = this.savedFog;
+        this.underwaterScene.hide();
+        this.underwaterScene.dispose();
+
+        this.onUnderwaterChangeCb?.(false);
+        return;
+      }
+
+      // During exit transition — show globe elements again
+      if (this.earth) this.earth.visible = true;
+      if (this.atmo) {
+        this.atmo.rim.visible = true;
+        this.atmo.haze.visible = true;
+      }
+      this.speciesLayer.setVisible(true);
+    }
+
+    // Transition camera: interpolate between globe view and underwater
+    if (this.uwTransition < 1 && this.uwTransition > 0) {
+      // During transition: zoom camera toward the dive point
+      const diveDir = this.uwDiveTarget.clone().normalize();
+      // Camera orbits at curDist; move it close to the surface
+      const transitionDist = THREE.MathUtils.lerp(this.curDist, GLOBE_RADIUS + 2, this.uwTransition);
+      const camPos = diveDir.clone().multiplyScalar(transitionDist);
+      this.camera.position.copy(camPos);
+      this.camera.lookAt(this.uwDiveTarget);
+
+      // Blend scene background
+      const globeBg = this.savedBackground instanceof THREE.Color
+        ? this.savedBackground : new THREE.Color(0x050a12);
+      const uwBg = new THREE.Color(0x041830);
+      const blended = globeBg.clone().lerp(uwBg, this.uwTransition);
+      this.scene.background = blended;
+      return;
+    }
+
+    // Fully underwater — free-look camera
+    if (this.uwTransition >= 1) {
+      // WASD movement
+      const moveSpeed = 8 * dt;
+      const forward = new THREE.Vector3(
+        -Math.sin(this.uwCamYaw) * Math.cos(this.uwCamPitch),
+        Math.sin(this.uwCamPitch),
+        -Math.cos(this.uwCamYaw) * Math.cos(this.uwCamPitch),
+      );
+      const right = new THREE.Vector3(
+        Math.cos(this.uwCamYaw), 0, -Math.sin(this.uwCamYaw),
+      );
+
+      if (this.uwKeys.has('w') || this.uwKeys.has('arrowup')) {
+        this.uwCamPos.addScaledVector(forward, moveSpeed);
+      }
+      if (this.uwKeys.has('s') || this.uwKeys.has('arrowdown')) {
+        this.uwCamPos.addScaledVector(forward, -moveSpeed);
+      }
+      if (this.uwKeys.has('a') || this.uwKeys.has('arrowleft')) {
+        this.uwCamPos.addScaledVector(right, -moveSpeed);
+      }
+      if (this.uwKeys.has('d') || this.uwKeys.has('arrowright')) {
+        this.uwCamPos.addScaledVector(right, moveSpeed);
+      }
+      if (this.uwKeys.has(' ')) {
+        this.uwCamPos.y += moveSpeed; // ascend
+      }
+      if (this.uwKeys.has('shift')) {
+        this.uwCamPos.y -= moveSpeed; // descend
+      }
+
+      // Gentle auto-forward drift for a "swimming" feel
+      this.uwCamPos.addScaledVector(forward, dt * 0.5);
+
+      // Clamp position within bounds
+      this.uwCamPos.x = THREE.MathUtils.clamp(this.uwCamPos.x, -80, 80);
+      this.uwCamPos.y = THREE.MathUtils.clamp(this.uwCamPos.y, -22, 28);
+      this.uwCamPos.z = THREE.MathUtils.clamp(this.uwCamPos.z, -80, 80);
+
+      // Apply camera
+      this.camera.position.copy(this.uwCamPos);
+      const lookTarget = this.uwCamPos.clone().add(forward);
+      this.camera.lookAt(lookTarget);
+      this.camera.near = 0.1;
+      this.camera.far = 200;
+      this.camera.updateProjectionMatrix();
+
+      // Update underwater scene
+      this.underwaterScene.update(this.elapsedTime, this.camera);
+    }
+  }
+
   /** Fly camera to look at a lat/lng. */
   flyTo(lat: number, lng: number, dist?: number, duration = 2000): void {
     const target = latLngToVec3(lat, lng, GLOBE_RADIUS, 0);
@@ -191,13 +437,14 @@ export class GlobeRenderer {
   // ─── Pointer handling (custom spherical camera) ─────────────────────────
 
   private onPointerDown = (e: PointerEvent): void => {
+    if (this._isUnderwater) return;
     this.isDragging = true;
     this.lastPointer.x = e.clientX;
     this.lastPointer.y = e.clientY;
   };
 
   private onPointerMove = (e: PointerEvent): void => {
-    if (!this.isDragging) return;
+    if (!this.isDragging || this._isUnderwater) return;
     const dx = e.clientX - this.lastPointer.x;
     const dy = e.clientY - this.lastPointer.y;
     this.lastPointer.x = e.clientX;
@@ -216,6 +463,7 @@ export class GlobeRenderer {
   };
 
   private onWheel = (e: WheelEvent): void => {
+    if (this._isUnderwater) return;
     e.preventDefault();
     // Zoom sensitivity: slower when close (fine control), faster when far
     const zoomPct = this.tgtDist < 160 ? 0.0005 : this.tgtDist < 250 ? 0.0008 : 0.001;
@@ -267,6 +515,17 @@ export class GlobeRenderer {
     const dt = this.lastTime > 0 ? Math.min(now - this.lastTime, 0.1) : 0.016;
     this.lastTime = now;
     this.elapsedTime += dt;
+
+    // ── Underwater mode ──────────────────────────────────────────────────
+    if (this._isUnderwater) {
+      this.animateUnderwater(dt);
+
+      // External callback
+      this.onFrameCb?.(dt);
+
+      this.renderer.render(this.scene, this.camera);
+      return; // skip globe camera logic
+    }
 
     // Exponential smoothing (solar-style split damping)
     const lfRot = 1 - Math.pow(0.0001, dt);  // rotation: near-instant
@@ -344,7 +603,13 @@ export class GlobeRenderer {
     el.removeEventListener('touchstart', this.onTouchStart);
     el.removeEventListener('touchmove', this.onTouchMove);
     el.removeEventListener('touchend', this.onTouchEnd);
+    el.removeEventListener('mousedown', this.onUwMouseDown);
+    el.removeEventListener('mousemove', this.onUwMouseMove);
+    el.removeEventListener('mouseup', this.onUwMouseUp);
+    document.removeEventListener('keydown', this.onUwKeyDown);
+    document.removeEventListener('keyup', this.onUwKeyUp);
 
+    this.underwaterScene.dispose();
     this.speciesLayer.dispose();
     this.trailLayer.dispose();
     if (this.earth) { this.scene.remove(this.earth); }
