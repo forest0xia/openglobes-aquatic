@@ -84,7 +84,7 @@ export function useGlobe() {
 
   // Load sprite facing directions
   useEffect(() => {
-    fetch('/data/sprites/facing.json')
+    fetch('/facing.json')
       .then((r) => r.json())
       .then((data) => { facingDataRef.current = data; })
       .catch(() => { /* facing data optional */ });
