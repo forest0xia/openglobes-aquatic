@@ -58,6 +58,51 @@ export function FishGlobe() {
     }
   }, [globe.isUnderwater]);
 
+  // ── Auto-enter underwater via URL param ?v=uw ──────────────────────────
+  const autoUwDone = useRef(false);
+  useEffect(() => {
+    if (autoUwDone.current || !globe.sceneReady || species.length === 0) return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('v') !== 'uw') return;
+    autoUwDone.current = true;
+
+    // Pick a random ocean point to dive into
+    const oceanSpots = species.flatMap(sp => sp.viewingSpots);
+    if (oceanSpots.length === 0) return;
+    const spot = oceanSpots[Math.floor(Math.random() * oceanSpots.length)];
+
+    // Gather species for the dive (same logic as double-click)
+    const nearby: typeof species = [];
+    const seen = new Set<number>();
+    for (const sp of species) {
+      for (const vs of sp.viewingSpots) {
+        const dLat = vs.lat - spot.lat, dLng = vs.lng - spot.lng;
+        if (dLat * dLat + dLng * dLng < 225 && !seen.has(sp.aphiaId)) {
+          nearby.push(sp); seen.add(sp.aphiaId); break;
+        }
+      }
+      if (nearby.length >= 20) break;
+    }
+    // Add large animals + corals
+    const LK = /鲸|鲨|海豚|whale|shark|dolphin|orca/i;
+    for (const sp of species) {
+      if (seen.has(sp.aphiaId)) continue;
+      if (LK.test(`${sp.nameZh} ${sp.name}`) && (sp.display.scale === 'large' || sp.display.scale === 'massive')) {
+        nearby.push(sp); seen.add(sp.aphiaId);
+      }
+      if (nearby.length >= 35) break;
+    }
+    const CK = /珊瑚|海葵|海绵|砗磲|海星|海胆|coral|anemone|sponge/i;
+    let cc = 0;
+    for (const sp of species) {
+      if (seen.has(sp.aphiaId)) continue;
+      if (CK.test(`${sp.nameZh} ${sp.name}`)) { nearby.push(sp); seen.add(sp.aphiaId); cc++; }
+      if (cc >= 15) break;
+    }
+
+    globe.enterUnderwater(spot.lat, spot.lng, nearby);
+  }, [globe.sceneReady, species, globe]);
+
   // ── UI state ────────────────────────────────────────────────────────────
   const [landToast, setLandToast] = useState(false);
   const [selectedSpecies, setSelectedSpecies] = useState<Species | null>(null);

@@ -31,9 +31,9 @@ export const speciesVertexShader = `
     vec3 camDir = normalize(uCamPos);
     vec3 spriteDir = normalize(pos);
     float facing = dot(camDir, spriteDir);
-    vAlpha = smoothstep(0.0, 0.15, facing);
+    vAlpha = smoothstep(0.1, 0.25, facing);
 
-    if (facing < -0.05) {
+    if (facing < 0.1) {
       gl_Position = vec4(0.0, 0.0, -2.0, 1.0);
       return;
     }

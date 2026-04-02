@@ -78,8 +78,8 @@ const CORAL_GLOW_VS = `
     vec3 camDir = normalize(uCamPos);
     vec3 spriteDir = normalize(pos);
     float facing = dot(camDir, spriteDir);
-    vAlpha = smoothstep(0.0, 0.15, facing);
-    if (facing < -0.05) { gl_Position = vec4(0,-2,0,1); return; }
+    vAlpha = smoothstep(0.1, 0.25, facing);
+    if (facing < 0.1) { gl_Position = vec4(0,-2,0,1); return; }
 
     vColor = instanceColor;
     vPos = position.xy;
