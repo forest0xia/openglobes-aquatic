@@ -3,6 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <title>深海探索 — 全球海洋生物3D互动地球</title>
     <meta name="description" content="探索全球200+种海洋生物，在3D地球上观察它们的栖息地、洄游路线和观测地点。" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -11,7 +12,14 @@
 
     <style>
       * { margin: 0; padding: 0; box-sizing: border-box; }
-      body { background: #04060F; overflow: hidden; }
+      body {
+        background: #04060F;
+        overflow: hidden;
+        -webkit-user-select: none;
+        user-select: none;
+        touch-action: none; /* prevent browser zoom/scroll on touch */
+        -webkit-touch-callout: none;
+      }
 
       #og-loading-screen {
         position: fixed; inset: 0; z-index: 9999;

@@ -2,8 +2,7 @@ import { useRef, useCallback, useState, useEffect, useContext } from 'react';
 import * as THREE from 'three';
 import { GlobeRenderer, type GlobeThemeConfig } from '../globe/GlobeRenderer';
 import { ThemeContext, type AquaticTheme } from '../themes';
-import { GeoLabelsManager } from '../components/GeoLabels';
-import { GEO_LABELS } from '../data/geoLabels';
+// GeoLabels removed — no map labels
 import { addStep, completeStep } from '../utils/loadProgress';
 import type { Species } from './useSpeciesData';
 import type { MigrationRoute } from '../data/migrations';
@@ -75,18 +74,21 @@ export function useGlobe() {
   const isNightMode = theme.id === 'bioluminescence';
 
   const rendererRef = useRef<GlobeRenderer | null>(null);
-  const labelsManagerRef = useRef<GeoLabelsManager | null>(null);
   const [sceneReady, setSceneReady] = useState(false);
   const [globeSkin, setGlobeSkin] = useState<string>('default');
-  const [labelTypes, setLabelTypes] = useState<string[]>([
-    'ocean',
-    'sea',
-    'continent',
-    'island',
-  ]);
+  // Labels removed
   const [isUnderwater, setIsUnderwater] = useState(false);
   const atlasTextureRef = useRef<THREE.Texture | null>(null);
   const spriteManifestRef = useRef<{ sprites: Record<string, { x: number; y: number; w: number; h: number }>; sheetWidth: number; sheetHeight: number } | null>(null);
+  const facingDataRef = useRef<Record<string, string> | null>(null);
+
+  // Load sprite facing directions
+  useEffect(() => {
+    fetch('/data/sprites/facing.json')
+      .then((r) => r.json())
+      .then((data) => { facingDataRef.current = data; })
+      .catch(() => { /* facing data optional */ });
+  }, []);
 
   // -------------------------------------------------------------------------
   // containerRef — create renderer + mount into the DOM element
@@ -103,22 +105,6 @@ export function useGlobe() {
 
       // Apply initial theme
       rendererRef.current.setTheme(toGlobeThemeConfig(theme.globeTheme));
-
-      // Geo labels
-      labelsManagerRef.current = new GeoLabelsManager(
-        rendererRef.current['scene'],
-        (lat: number, lng: number, alt?: number) =>
-          rendererRef.current!.getCoords(lat, lng, alt),
-        GEO_LABELS,
-      );
-
-      // Label backface culling every 10 frames (not every frame)
-      let labelFrame = 0;
-      rendererRef.current.onFrame(() => {
-        if (++labelFrame % 10 === 0 && labelsManagerRef.current) {
-          labelsManagerRef.current.update(rendererRef.current!.getCamera());
-        }
-      });
 
       setSceneReady(true);
       completeStep('scene');
@@ -140,17 +126,6 @@ export function useGlobe() {
   }, [theme, sceneReady, globeSkin]);
 
   // -------------------------------------------------------------------------
-  // Label type visibility
-  // -------------------------------------------------------------------------
-
-  useEffect(() => {
-    if (!labelsManagerRef.current) return;
-    labelsManagerRef.current.setVisible(labelTypes.length > 0);
-    for (const type of ['ocean', 'sea', 'continent', 'island']) {
-      labelsManagerRef.current.setTypeVisible(type, labelTypes.includes(type));
-    }
-  }, [labelTypes]);
-
   // -------------------------------------------------------------------------
   // Build species sprites — called when data + scene are ready
   // -------------------------------------------------------------------------
@@ -274,21 +249,20 @@ export function useGlobe() {
           const spriteName = sp.sprite.replace('.png', '');
           const rect = manifest.sprites[spriteName];
           if (!rect) continue;
+          const facingKey = spriteName.replace(/^sp-/, '');
+          const facingDir = facingDataRef.current?.[facingKey] ?? 'right';
           fishData.push({
             species: sp,
             uvRect: rect,
             sheetWidth: manifest.sheetWidth,
             sheetHeight: manifest.sheetHeight,
+            facingLeft: facingDir === 'left',
           });
         }
       }
 
-      // First fly to the location, then dive
-      renderer.flyTo(lat, lng, 130, 1000);
-      // Start dive after a short delay for the flyTo to settle
-      setTimeout(() => {
-        renderer.enterUnderwater(lat, lng, atlas, fishData);
-      }, 600);
+      // Dive immediately — the clicked point is already visible, no flyTo needed
+      renderer.enterUnderwater(lat, lng, atlas, fishData);
     },
     [],
   );
@@ -303,8 +277,7 @@ export function useGlobe() {
 
   useEffect(() => {
     return () => {
-      labelsManagerRef.current?.dispose();
-      labelsManagerRef.current = null;
+      // No labels to dispose
       rendererRef.current?.dispose();
       rendererRef.current = null;
     };
@@ -320,8 +293,6 @@ export function useGlobe() {
     globeSkin,
     setGlobeSkin,
     GLOBE_SKINS,
-    labelTypes,
-    setLabelTypes,
     buildSprites,
     flyTo,
     isUnderwater,

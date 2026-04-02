@@ -12,11 +12,38 @@ export const seabedVertexShader = `
   varying vec2 vUV;
   varying vec3 vWorldPos;
 
+  // Reuse noise from fragment shader for consistent terrain
+  float hash(vec2 p) {
+    return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+  }
+  float noise(vec2 p) {
+    vec2 i = floor(p);
+    vec2 f = fract(p);
+    f = f * f * (3.0 - 2.0 * f);
+    float a = hash(i);
+    float b = hash(i + vec2(1.0, 0.0));
+    float c = hash(i + vec2(0.0, 1.0));
+    float d = hash(i + vec2(1.0, 1.0));
+    return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+  }
+
   void main() {
     vUV = uv;
-    vec4 worldPos = modelMatrix * vec4(position, 1.0);
+    vec3 pos = position;
+
+    // Terrain hills — 2 octaves of Perlin noise
+    vec2 terrainUV = pos.xz * 0.02;
+    // Broad rolling hills
+    float hill = noise(terrainUV * 1.0) * 8.0
+               + noise(terrainUV * 2.5) * 4.0
+               + noise(terrainUV * 6.0) * 1.5;
+    // Occasional ridges / cliffs — sharp terrain features
+    float ridge = pow(noise(terrainUV * 1.5 + vec2(3.7, 1.2)), 3.0) * 20.0;
+    pos.y += hill + ridge;
+
+    vec4 worldPos = modelMatrix * vec4(pos, 1.0);
     vWorldPos = worldPos.xyz;
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
   }
 `;
 
@@ -177,17 +204,18 @@ export const particleFragmentShader = `
   }
 `;
 
-/** Underwater fish billboard shader — similar to SpeciesShader but adapted for 3D space. */
+/** Underwater fish billboard shader — split into left/right groups with hardcoded orbit direction. */
 export const uwFishVertexShader = `
   attribute vec3 instancePos;
   attribute vec4 instanceUV;
   attribute float instancePhase;
-  attribute float instanceAnim;
   attribute vec2 instanceSize;
   attribute vec3 instanceColor;
   attribute vec3 instanceVelocity;
 
   uniform float uTime;
+  uniform vec3 uCamPos;
+  uniform float uOrbitDir; // +1.0 for right-facing group, -1.0 for left-facing group
 
   varying vec2 vUV;
   varying vec2 vQuadPos;
@@ -201,16 +229,22 @@ export const uwFishVertexShader = `
     vGlowStrength = 0.5;
 
     float t = uTime + instancePhase;
-
-    // Animate position: fish swim in loops
-    vec3 pos = instancePos;
     vec3 vel = instanceVelocity;
 
-    // Circular swimming path + some wobble
-    float swimRadius = length(vel) * 2.0;
-    pos.x += sin(t * vel.x * 0.3) * swimRadius;
-    pos.y += sin(t * vel.y * 0.5) * swimRadius * 0.3;
-    pos.z += cos(t * vel.z * 0.3) * swimRadius;
+    // Orbit around camera. uOrbitDir (+1 or -1) controls rotation direction.
+    // Right-facing fish: uOrbitDir=+1 → counter-clockwise → appear to swim rightward
+    // Left-facing fish: uOrbitDir=-1 → clockwise → appear to swim leftward
+    float orbitRadius = max(length(instancePos.xz), 25.0);
+    float speedRand = fract(instancePhase * 0.0073) * 0.015;
+    float orbitSpeed = (0.015 + vel.x * 0.04 + speedRand) * uOrbitDir;
+    // Phase offset for starting position only (NOT multiplied by direction)
+    float startAngle = instancePhase;
+    float angle = startAngle + uTime * orbitSpeed;
+
+    vec3 pos;
+    pos.x = uCamPos.x + sin(angle) * orbitRadius;
+    pos.z = uCamPos.z + cos(angle) * orbitRadius;
+    pos.y = instancePos.y + sin(uTime * vel.y * 0.2 + instancePhase) * 0.6;
 
     // Billboard
     vec4 mvPos = modelViewMatrix * vec4(pos, 1.0);
@@ -218,19 +252,16 @@ export const uwFishVertexShader = `
 
     // Body wave
     float bodyX = position.x;
-    float amp = (0.5 - bodyX) * 0.3;
-    float bodyWave = sin(bodyX * 6.28 - t * 4.0) * amp;
+    float amp = (0.5 - bodyX) * 0.2;
+    float bodyWave = sin(bodyX * 6.28 - t * 3.0) * amp;
 
-    vec2 expandedSize = size * 1.8;
     vQuadPos = position.xy;
-
-    mvPos.x += position.x * expandedSize.x;
-    mvPos.y += position.y * expandedSize.y + bodyWave * size.y;
+    mvPos.x += position.x * size.x;
+    mvPos.y += position.y * size.y + bodyWave * size.y;
 
     gl_Position = projectionMatrix * mvPos;
 
-    float uvScale = 1.8;
-    vec2 texUV = position.xy * uvScale + 0.5;
+    vec2 texUV = position.xy + 0.5;
     texUV.y = 1.0 - texUV.y;
     vUV = instanceUV.xy + clamp(texUV, 0.0, 1.0) * instanceUV.zw;
   }
@@ -250,24 +281,148 @@ export const uwFishFragmentShader = `
 
   void main() {
     vec4 texel = texture2D(uAtlas, vUV);
-    float dist = length(vQuadPos);
+    if (texel.a < 0.01) discard;
 
-    float pulse = 0.7 + 0.3 * sin(uTime * 1.5 + vGlowColor.r * 20.0);
-    float glow = vGlowStrength * pulse;
+    vec3 color = texel.rgb;
+    // Subtle color tint from species
+    float pulse = 0.8 + 0.2 * sin(uTime * 1.5 + vGlowColor.r * 20.0);
+    color += vGlowColor * 0.1 * pulse;
 
-    if (texel.a > 0.05) {
-      vec3 color = texel.rgb;
-      color += vGlowColor * glow * 0.3;
-      float bodyEdge = 1.0 - smoothstep(0.05, 0.5, texel.a);
-      color += vGlowColor * bodyEdge * glow * 0.5;
-      color *= 1.0 + glow * 0.2;
-      gl_FragColor = vec4(color, texel.a * vAlpha);
-    } else {
-      float innerHalo = (1.0 - smoothstep(0.1, 0.3, dist)) * glow * 0.8;
-      float outerHalo = (1.0 - smoothstep(0.2, 0.5, dist)) * glow * 0.3;
-      float totalHalo = innerHalo + outerHalo;
-      if (totalHalo < 0.005) discard;
-      gl_FragColor = vec4(vGlowColor * totalHalo, totalHalo * vAlpha);
-    }
+    gl_FragColor = vec4(color, texel.a * vAlpha);
+  }
+`;
+
+/** Underwater decoration billboard shader — sprite-based corals & reef life. */
+export const decorVertexShader = `
+  attribute vec3 instancePos;
+  attribute vec2 instanceSize;
+  attribute vec4 instanceUV;
+  attribute float instancePhase;
+
+  uniform float uTime;
+
+  varying vec2 vUV;
+
+  // Same noise as seabed shader — compute terrain height on GPU to match exactly
+  float hash(vec2 p) {
+    return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+  }
+  float noise(vec2 p) {
+    vec2 i = floor(p);
+    vec2 f = fract(p);
+    f = f * f * (3.0 - 2.0 * f);
+    float a = hash(i);
+    float b = hash(i + vec2(1.0, 0.0));
+    float c = hash(i + vec2(0.0, 1.0));
+    float d = hash(i + vec2(1.0, 1.0));
+    return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+  }
+
+  void main() {
+    vec3 pos = instancePos;
+
+    // Compute terrain height using the EXACT same formula as the seabed shader.
+    // This guarantees corals sit on the ground regardless of CPU/GPU precision.
+    vec2 tUV = pos.xz * 0.02;
+    float terrainY = noise(tUV * 1.0) * 8.0
+                   + noise(tUV * 2.5) * 4.0
+                   + noise(tUV * 6.0) * 1.5
+                   + pow(noise(tUV * 1.5 + vec2(3.7, 1.2)), 3.0) * 20.0;
+    pos.y = -25.0 + terrainY; // seabed base + terrain displacement
+
+    // No sway — corals are fixed to the ground
+
+    // Billboard — face camera, anchor at bottom
+    vec4 mvPos = modelViewMatrix * vec4(pos, 1.0);
+    mvPos.x += position.x * instanceSize.x;
+    mvPos.y += (position.y + 0.5) * instanceSize.y;
+    gl_Position = projectionMatrix * mvPos;
+
+    // UV from sprite atlas
+    vec2 texUV = position.xy + 0.5;
+    texUV.y = 1.0 - texUV.y;
+    vUV = instanceUV.xy + clamp(texUV, 0.0, 1.0) * instanceUV.zw;
+  }
+`;
+
+export const decorFragmentShader = `
+  uniform sampler2D uAtlas;
+  uniform float uTime;
+
+  varying vec2 vUV;
+
+  void main() {
+    vec4 texel = texture2D(uAtlas, vUV);
+    if (texel.a < 0.05) discard;
+
+    // Shimmer / sparkle — bright pulses on coral edges
+    float edge = 1.0 - smoothstep(0.1, 0.6, texel.a);
+    float sparkle = pow(sin(uTime * 3.0 + vUV.x * 40.0 + vUV.y * 30.0) * 0.5 + 0.5, 8.0);
+    vec3 color = texel.rgb + vec3(0.4, 0.6, 1.0) * edge * sparkle * 0.8;
+    // Overall gentle glow pulse
+    float glow = 0.9 + 0.1 * sin(uTime * 1.5 + vUV.x * 10.0);
+    color *= glow;
+
+    gl_FragColor = vec4(color, texel.a);
+  }
+`;
+
+/** Ocean surface seen from below — animated caustic light ripples. */
+export const surfaceVertexShader = `
+  varying vec2 vUV;
+  varying vec3 vWorldPos;
+
+  void main() {
+    vUV = uv;
+    vec4 wp = modelMatrix * vec4(position, 1.0);
+    vWorldPos = wp.xyz;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  }
+`;
+
+export const surfaceFragmentShader = `
+  uniform float uTime;
+  varying vec2 vUV;
+  varying vec3 vWorldPos;
+
+  float hash(vec2 p) {
+    return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+  }
+  float noise(vec2 p) {
+    vec2 i = floor(p);
+    vec2 f = fract(p);
+    f = f * f * (3.0 - 2.0 * f);
+    float a = hash(i);
+    float b = hash(i + vec2(1.0, 0.0));
+    float c = hash(i + vec2(0.0, 1.0));
+    float d = hash(i + vec2(1.0, 1.0));
+    return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+  }
+
+  void main() {
+    vec2 uv = vWorldPos.xz * 0.03;
+
+    // Animated wave pattern — 3 overlapping layers
+    float wave = noise(uv * 3.0 + vec2(uTime * 0.2, uTime * 0.15)) * 0.4
+               + noise(uv * 6.0 - vec2(uTime * 0.3, uTime * 0.1)) * 0.3
+               + noise(uv * 12.0 + vec2(uTime * 0.15, -uTime * 0.25)) * 0.2;
+
+    // Caustic-like bright lines
+    float caustic = pow(wave, 2.0) * 2.0;
+
+    // Base ocean color with bright caustic highlights
+    vec3 deepBlue = vec3(0.05, 0.15, 0.35);
+    vec3 lightBlue = vec3(0.3, 0.6, 0.9);
+    vec3 color = mix(deepBlue, lightBlue, caustic);
+
+    // Brighter at center (sun overhead), darker at edges
+    float centerDist = length(vWorldPos.xz) * 0.005;
+    float sunGlow = exp(-centerDist * centerDist * 2.0);
+    color += vec3(0.15, 0.25, 0.35) * sunGlow;
+
+    // Soft alpha — more transparent at edges
+    float alpha = 0.25 + caustic * 0.15 + sunGlow * 0.1;
+
+    gl_FragColor = vec4(color, alpha);
   }
 `;

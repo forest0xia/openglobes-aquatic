@@ -13,9 +13,9 @@ const loader = new THREE.TextureLoader();
 
 export function createEarthMesh(options: EarthMeshOptions): THREE.Mesh {
   const geometry = new THREE.SphereGeometry(100, 64, 64);
-  const material = new THREE.MeshPhongMaterial({
-    shininess: options.shininess ?? 15,
-  });
+  // MeshLambertMaterial: no specular highlights, uniform response to ambient light.
+  // The globe looks evenly lit from all angles — no shiny reflections.
+  const material = new THREE.MeshLambertMaterial();
 
   loader.load(options.textureUrl, (tex) => {
     tex.colorSpace = THREE.SRGBColorSpace;
@@ -26,18 +26,12 @@ export function createEarthMesh(options: EarthMeshOptions): THREE.Mesh {
   if (options.bumpUrl) {
     loader.load(options.bumpUrl, (tex) => {
       material.bumpMap = tex;
-      material.bumpScale = options.bumpScale ?? 10;
+      material.bumpScale = options.bumpScale ?? 5;
       material.needsUpdate = true;
     });
   }
 
-  if (options.specularUrl) {
-    loader.load(options.specularUrl, (tex) => {
-      material.specularMap = tex;
-      material.specular = new THREE.Color(options.specularColor ?? 'grey');
-      material.needsUpdate = true;
-    });
-  }
+  // No specular map — no shiny reflections
 
   return new THREE.Mesh(geometry, material);
 }

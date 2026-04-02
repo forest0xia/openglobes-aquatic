@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sprite Facing Direction Tool</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #0a0e17; color: #e0e8ff; font-family: 'DM Sans', sans-serif; padding: 20px; }
+  h1 { font-size: 20px; margin-bottom: 8px; }
+  .stats { font-size: 13px; color: #88aacc; margin-bottom: 16px; }
+  .controls { display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; }
+  .controls button {
+    padding: 6px 16px; border: 1px solid #334; border-radius: 6px;
+    background: #1a2030; color: #e0e8ff; cursor: pointer; font-size: 13px;
+  }
+  .controls button:hover { background: #2a3050; }
+  .controls button.active { background: #2060a0; border-color: #4090d0; }
+  .filter-label { font-size: 12px; color: #88aacc; }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 8px;
+  }
+  .card {
+    background: #141a28; border: 2px solid #223; border-radius: 8px;
+    padding: 8px; cursor: pointer; transition: all 0.15s;
+    display: flex; flex-direction: column; align-items: center;
+  }
+  .card:hover { border-color: #4488cc; }
+  .card.wrong { border-color: #ff4444; background: #2a1010; }
+  .card.correct { border-color: #44aa44; background: #102a10; }
+  .card img {
+    height: 48px; max-width: 180px; object-fit: contain;
+    image-rendering: pixelated; margin: 8px 0;
+  }
+  .card .name { font-size: 11px; color: #aabbdd; text-align: center; }
+  .card .facing-label {
+    font-size: 10px; padding: 2px 8px; border-radius: 4px; margin-top: 4px;
+  }
+  .facing-left { background: #1a3050; color: #66aadd; }
+  .facing-right { background: #302a1a; color: #ddaa66; }
+  .card .arrow {
+    font-size: 24px; margin: 4px 0;
+  }
+  .export-area {
+    margin-top: 20px; padding: 12px; background: #1a2030; border-radius: 8px;
+    display: none;
+  }
+  .export-area textarea {
+    width: 100%; height: 200px; background: #0a0e17; color: #88ccff;
+    border: 1px solid #334; border-radius: 4px; font-family: monospace; font-size: 12px;
+    padding: 8px;
+  }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+
+<h1>Sprite Facing Direction Tool</h1>
+<p class="stats">
+  Click a sprite to mark it as <b style="color:#ff6666">WRONG</b> (swimming backward).
+  Click again to unmark. Export the corrections when done.
+  <br>Auto-detected: <span id="autoLeft">0</span> left, <span id="autoRight">0</span> right.
+  <span id="wrongCount" style="color:#ff6666"></span>
+</p>
+
+<div class="controls">
+  <button id="btnAll" class="active" onclick="setFilter('all')">All</button>
+  <button id="btnLeft" onclick="setFilter('left')">← Left facing</button>
+  <button id="btnRight" onclick="setFilter('right')">Right facing →</button>
+  <button id="btnWrong" onclick="setFilter('wrong')">Wrong only</button>
+  <span class="filter-label">|</span>
+  <button id="btnExport" onclick="toggleExport()">Export corrections</button>
+  <button id="btnApply" onclick="applyFixes()">Apply & download fixed facing.json</button>
+</div>
+
+<div class="grid" id="grid"></div>
+
+<div class="export-area" id="exportArea">
+  <p style="font-size:12px; margin-bottom:8px; color:#88aacc;">
+    Sprites marked as wrong — their facing will be flipped in the export:
+  </p>
+  <textarea id="exportText" readonly></textarea>
+</div>
+
+<script>
+const SPRITES_BASE = '../data/sprites/';
+let manifest = {};
+let facing = {};
+let wrongSet = new Set(); // sprites marked as wrong
+let currentFilter = 'all';
+
+async function init() {
+  const [mRes, fRes] = await Promise.all([
+    fetch(SPRITES_BASE + 'manifest.json'),
+    fetch(SPRITES_BASE + 'facing.json'),
+  ]);
+  manifest = (await mRes.json()).sprites;
+  facing = await fRes.json();
+
+  let leftCount = 0, rightCount = 0;
+  for (const dir of Object.values(facing)) {
+    if (dir === 'left') leftCount++; else rightCount++;
+  }
+  document.getElementById('autoLeft').textContent = leftCount;
+  document.getElementById('autoRight').textContent = rightCount;
+
+  render();
+}
+
+function render() {
+  const grid = document.getElementById('grid');
+  grid.innerHTML = '';
+
+  const entries = Object.entries(manifest).sort((a, b) => a[0].localeCompare(b[0]));
+
+  for (const [name, data] of entries) {
+    const dir = facing[name] || 'right';
+    const isWrong = wrongSet.has(name);
+
+    if (currentFilter === 'left' && dir !== 'left') continue;
+    if (currentFilter === 'right' && dir !== 'right') continue;
+    if (currentFilter === 'wrong' && !isWrong) continue;
+
+    const card = document.createElement('div');
+    card.className = 'card' + (isWrong ? ' wrong' : '');
+    card.onclick = () => toggleWrong(name);
+
+    const arrow = dir === 'left' ? '←' : '→';
+    const correctedDir = isWrong ? (dir === 'left' ? 'right' : 'left') : dir;
+    const correctedArrow = correctedDir === 'left' ? '←' : '→';
+
+    card.innerHTML = `
+      <img src="${SPRITES_BASE}${data.file}" alt="${name}">
+      <div class="name">${data.name || name}</div>
+      <div class="arrow">${isWrong ? '<s style="color:#666">' + arrow + '</s> → ' + correctedArrow : arrow}</div>
+      <span class="facing-label ${isWrong ? 'facing-' + correctedDir : 'facing-' + dir}">
+        ${isWrong ? '✗ was ' + dir + ' → ' + correctedDir : dir}
+      </span>
+    `;
+    grid.appendChild(card);
+  }
+
+  document.getElementById('wrongCount').textContent =
+    wrongSet.size > 0 ? `| ${wrongSet.size} marked wrong` : '';
+}
+
+function toggleWrong(name) {
+  if (wrongSet.has(name)) wrongSet.delete(name);
+  else wrongSet.add(name);
+  render();
+  updateExport();
+}
+
+function setFilter(f) {
+  currentFilter = f;
+  document.querySelectorAll('.controls button').forEach(b => b.classList.remove('active'));
+  document.getElementById('btn' + f.charAt(0).toUpperCase() + f.slice(1)).classList.add('active');
+  render();
+}
+
+function toggleExport() {
+  const area = document.getElementById('exportArea');
+  area.style.display = area.style.display === 'none' ? 'block' : 'none';
+  updateExport();
+}
+
+function updateExport() {
+  const lines = [];
+  for (const name of [...wrongSet].sort()) {
+    const oldDir = facing[name] || 'right';
+    const newDir = oldDir === 'left' ? 'right' : 'left';
+    lines.push(`${name}: ${oldDir} → ${newDir}`);
+  }
+  document.getElementById('exportText').value = lines.join('\n') || '(no corrections yet)';
+}
+
+function applyFixes() {
+  const fixed = { ...facing };
+  for (const name of wrongSet) {
+    const oldDir = fixed[name] || 'right';
+    fixed[name] = oldDir === 'left' ? 'right' : 'left';
+  }
+  const blob = new Blob([JSON.stringify(fixed, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'facing.json';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+init();
+</script>
+</body>
+</html>

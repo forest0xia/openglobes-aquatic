@@ -1,0 +1,661 @@
+
+<style>
+* { margin: 0; box-sizing: border-box; }
+
+.reef-scene {
+  position: relative;
+  width: 100%;
+  height: 520px;
+  background: radial-gradient(ellipse at 50% 0%, #061a3a 0%, #030f22 40%, #01080f 100%);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+/* Blue light rays from above */
+.light-rays {
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background:
+    conic-gradient(from 190deg at 35% -5%, transparent 0deg, rgba(0,120,255,0.04) 8deg, transparent 16deg),
+    conic-gradient(from 170deg at 55% -5%, transparent 0deg, rgba(0,100,255,0.03) 6deg, transparent 12deg),
+    conic-gradient(from 200deg at 70% -5%, transparent 0deg, rgba(0,140,255,0.03) 10deg, transparent 18deg);
+  animation: rays-sway 12s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes rays-sway {
+  0%, 100% { transform: translateX(0) scaleX(1); }
+  50% { transform: translateX(15px) scaleX(1.03); }
+}
+
+/* Water surface caustics */
+.caustics {
+  position: absolute;
+  top: 0; left: -50%; right: -50%;
+  height: 100%;
+  background:
+    radial-gradient(ellipse 80px 60px at 25% 15%, rgba(60,160,255,0.06) 0%, transparent 100%),
+    radial-gradient(ellipse 100px 40px at 60% 10%, rgba(40,140,255,0.05) 0%, transparent 100%),
+    radial-gradient(ellipse 60px 80px at 80% 20%, rgba(80,180,255,0.04) 0%, transparent 100%);
+  animation: caustic-drift 15s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes caustic-drift {
+  0%, 100% { transform: translateX(0); }
+  50% { transform: translateX(40px); }
+}
+
+/* ========== SEAFLOOR ========== */
+.seafloor {
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  height: 160px;
+  background: linear-gradient(180deg, transparent 0%, rgba(8,20,35,0.8) 30%, #060e18 100%);
+}
+
+.sand {
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  height: 40px;
+  background: linear-gradient(180deg, #0a1520 0%, #0d1a28 100%);
+}
+
+/* ========== CORALS ========== */
+.coral {
+  position: absolute;
+  bottom: 30px;
+}
+
+/* Branching coral */
+.coral-branch {
+  position: relative;
+}
+
+.coral-branch .stem {
+  position: absolute;
+  bottom: 0;
+  width: 3px;
+  border-radius: 2px;
+  transform-origin: bottom center;
+}
+
+.coral-branch .tip {
+  position: absolute;
+  border-radius: 50%;
+  animation: coral-pulse 3s ease-in-out infinite;
+}
+
+@keyframes coral-pulse {
+  0%, 100% { filter: brightness(1) blur(0px); transform: scale(1); }
+  50% { filter: brightness(1.6) blur(1px); transform: scale(1.15); }
+}
+
+/* Brain coral */
+.coral-brain {
+  border-radius: 50% 50% 45% 45%;
+  animation: brain-glow 4s ease-in-out infinite;
+}
+
+@keyframes brain-glow {
+  0%, 100% { filter: brightness(1) blur(0px); box-shadow: 0 0 15px var(--glow-color); }
+  50% { filter: brightness(1.4) blur(0.5px); box-shadow: 0 0 35px var(--glow-color), 0 0 60px var(--glow-color); }
+}
+
+/* Mushroom coral */
+.coral-mushroom {
+  border-radius: 50% 50% 10% 10%;
+  animation: mushroom-breathe 5s ease-in-out infinite;
+}
+
+@keyframes mushroom-breathe {
+  0%, 100% { transform: scaleX(1) scaleY(1); filter: brightness(1); }
+  50% { transform: scaleX(1.05) scaleY(0.95); filter: brightness(1.5); }
+}
+
+/* Sea anemone */
+.anemone {
+  position: absolute;
+  bottom: 30px;
+}
+
+.anemone .base {
+  position: absolute;
+  bottom: 0;
+  border-radius: 50%;
+}
+
+.anemone .tentacle {
+  position: absolute;
+  bottom: 12px;
+  width: 2.5px;
+  border-radius: 1px 1px 0 0;
+  transform-origin: bottom center;
+  animation: tentacle-sway var(--sway-dur) ease-in-out infinite;
+}
+
+@keyframes tentacle-sway {
+  0%, 100% { transform: rotate(var(--sway-from)); }
+  50% { transform: rotate(var(--sway-to)); }
+}
+
+.tentacle-tip {
+  position: absolute;
+  top: -3px;
+  left: -1.5px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  animation: tip-glow 2s ease-in-out infinite;
+}
+
+@keyframes tip-glow {
+  0%, 100% { opacity: 0.7; filter: blur(0px); }
+  50% { opacity: 1; filter: blur(1px); transform: scale(1.3); }
+}
+
+/* ========== FLOATING PARTICLES (plankton) ========== */
+.particle {
+  position: absolute;
+  border-radius: 50%;
+  animation: float-particle linear infinite;
+}
+
+@keyframes float-particle {
+  0% { transform: translateY(0) translateX(0); opacity: 0; }
+  15% { opacity: var(--p-opacity); }
+  85% { opacity: var(--p-opacity); }
+  100% { transform: translateY(var(--p-dy)) translateX(var(--p-dx)); opacity: 0; }
+}
+
+/* ========== FISH ========== */
+.fish {
+  position: absolute;
+  cursor: pointer;
+  transition: filter 0.4s;
+}
+
+.fish:hover {
+  filter: brightness(1.5) drop-shadow(0 0 20px var(--fish-glow)) !important;
+}
+
+.fish-body-wrap {
+  position: relative;
+  animation: fish-swim var(--swim-dur, 8s) ease-in-out infinite;
+}
+
+@keyframes fish-swim {
+  0%, 100% { transform: translateX(0) translateY(0); }
+  25% { transform: translateX(30px) translateY(-8px); }
+  50% { transform: translateX(50px) translateY(5px); }
+  75% { transform: translateX(20px) translateY(-3px); }
+}
+
+.fish-body {
+  position: relative;
+  animation: fish-flex 1s ease-in-out infinite;
+}
+
+@keyframes fish-flex {
+  0%, 100% { transform: rotate(-1deg) skewX(-1.5deg); }
+  50% { transform: rotate(1deg) skewX(1.5deg); }
+}
+
+.fish-main {
+  border-radius: 50% 45% 45% 50%;
+}
+
+.fish-tail {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 0; height: 0;
+  transform-origin: right center;
+  animation: tail-wag 0.6s ease-in-out infinite;
+}
+
+@keyframes tail-wag {
+  0%, 100% { transform: translateY(-50%) rotate(-12deg); }
+  50% { transform: translateY(-50%) rotate(12deg); }
+}
+
+.fish-eye {
+  position: absolute;
+  background: rgba(255,255,255,0.9);
+  border-radius: 50%;
+}
+
+.fish-eye::after {
+  content: '';
+  position: absolute;
+  background: #0a0e1a;
+  border-radius: 50%;
+  width: 55%;
+  height: 55%;
+  top: 22%;
+  left: 30%;
+}
+
+/* Fish glow aura */
+.fish-glow {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(12px);
+  opacity: 0.25;
+  animation: aura-pulse 3s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes aura-pulse {
+  0%, 100% { opacity: 0.15; transform: scale(1); }
+  50% { opacity: 0.35; transform: scale(1.1); }
+}
+
+.fish-fin {
+  position: absolute;
+  transform-origin: left center;
+  animation: fin-wave 1.5s ease-in-out infinite;
+}
+
+@keyframes fin-wave {
+  0%, 100% { transform: rotate(-8deg); }
+  50% { transform: rotate(8deg); }
+}
+
+/* Name label */
+.fish-label {
+  position: absolute;
+  top: -22px;
+  left: 50%;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  font-family: 'Georgia', serif;
+  font-size: 11px;
+  font-style: italic;
+  letter-spacing: 0.5px;
+  opacity: 0;
+  transition: opacity 0.3s;
+  pointer-events: none;
+  text-shadow: 0 0 10px var(--fish-glow), 0 1px 4px rgba(0,0,0,0.8);
+}
+
+.fish:hover .fish-label {
+  opacity: 1;
+}
+
+/* ========== JELLYFISH ========== */
+.jellyfish {
+  position: absolute;
+  animation: jelly-drift 12s ease-in-out infinite;
+}
+
+@keyframes jelly-drift {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-25px); }
+}
+
+.jelly-bell {
+  border-radius: 50% 50% 30% 30%;
+  animation: jelly-pulse 2.5s ease-in-out infinite;
+}
+
+@keyframes jelly-pulse {
+  0%, 100% { transform: scaleX(1) scaleY(1); }
+  40% { transform: scaleX(0.85) scaleY(1.15); }
+  60% { transform: scaleX(1.1) scaleY(0.9); }
+}
+
+.jelly-tentacles {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 3px;
+}
+
+.jelly-t {
+  width: 1.5px;
+  border-radius: 0 0 1px 1px;
+  animation: jelly-t-wave var(--jt-dur) ease-in-out infinite;
+  transform-origin: top center;
+}
+
+@keyframes jelly-t-wave {
+  0%, 100% { transform: rotate(var(--jt-from)) scaleY(1); }
+  50% { transform: rotate(var(--jt-to)) scaleY(1.1); }
+}
+</style>
+
+<div class="reef-scene" id="scene">
+  <div class="light-rays"></div>
+  <div class="caustics"></div>
+  <div class="seafloor"></div>
+  <div class="sand"></div>
+</div>
+
+<script>
+const scene = document.getElementById('scene');
+const W = scene.offsetWidth || 700;
+
+// ========== CORALS ==========
+
+function createBranchCoral(x, baseColor, glowColor, height, branches) {
+  const group = document.createElement('div');
+  group.className = 'coral coral-branch';
+  group.style.left = x + 'px';
+
+  branches.forEach(b => {
+    const stem = document.createElement('div');
+    stem.className = 'stem';
+    stem.style.cssText = `
+      height: ${b.h}px;
+      left: ${b.x}px;
+      background: linear-gradient(to top, ${baseColor}88, ${baseColor});
+      transform: rotate(${b.angle}deg);
+      box-shadow: 0 0 6px ${glowColor}44;
+    `;
+
+    const tip = document.createElement('div');
+    tip.className = 'tip';
+    const tipSize = 5 + Math.random() * 5;
+    tip.style.cssText = `
+      width: ${tipSize}px; height: ${tipSize}px;
+      left: ${b.x - tipSize/2 + 1.5}px;
+      bottom: ${b.h - 2}px;
+      background: ${glowColor};
+      box-shadow: 0 0 ${8 + Math.random()*8}px ${glowColor}, 0 0 ${15+Math.random()*15}px ${glowColor}88;
+      animation-delay: ${-Math.random()*3}s;
+      animation-duration: ${2.5 + Math.random()*2}s;
+    `;
+
+    group.appendChild(stem);
+    group.appendChild(tip);
+  });
+
+  scene.appendChild(group);
+}
+
+// Neon green branching coral
+createBranchCoral(W * 0.08, '#0a6e3a', '#00ff88', 70, [
+  {x: 0, h: 55, angle: -12}, {x: 10, h: 70, angle: -3}, {x: 20, h: 60, angle: 5},
+  {x: 28, h: 45, angle: 15}, {x: 14, h: 50, angle: -8},
+]);
+
+// Electric blue branching coral
+createBranchCoral(W * 0.55, '#0a3a6e', '#00aaff', 60, [
+  {x: 0, h: 50, angle: -10}, {x: 8, h: 65, angle: 0}, {x: 16, h: 55, angle: 8},
+  {x: 24, h: 40, angle: 18}, {x: 12, h: 35, angle: -15},
+]);
+
+// Hot pink branching coral
+createBranchCoral(W * 0.82, '#6e0a4a', '#ff44aa', 55, [
+  {x: 0, h: 40, angle: -8}, {x: 9, h: 55, angle: 2}, {x: 18, h: 48, angle: 10},
+  {x: 6, h: 30, angle: -18},
+]);
+
+// Small yellow-green
+createBranchCoral(W * 0.35, '#3a5e0a', '#aaff00', 40, [
+  {x: 0, h: 35, angle: -5}, {x: 7, h: 42, angle: 3}, {x: 14, h: 30, angle: 12},
+]);
+
+// ========== BRAIN CORALS ==========
+function createBrainCoral(x, w, h, color, glowColor, delay) {
+  const el = document.createElement('div');
+  el.className = 'coral coral-brain';
+  el.style.cssText = `
+    left: ${x}px; width: ${w}px; height: ${h}px;
+    background: radial-gradient(ellipse at 40% 35%, ${color} 0%, ${color}88 100%);
+    --glow-color: ${glowColor};
+    box-shadow: 0 0 15px ${glowColor};
+    animation-delay: ${delay}s;
+  `;
+  // Surface texture via box-shadow inset
+  const inner = document.createElement('div');
+  inner.style.cssText = `
+    position: absolute; inset: 3px; border-radius: inherit;
+    background: repeating-radial-gradient(circle at 50% 50%, transparent 0px, transparent 3px, ${glowColor}22 4px, transparent 5px);
+    animation: brain-glow 4s ease-in-out infinite;
+    animation-delay: ${delay + 0.5}s;
+    --glow-color: transparent;
+  `;
+  el.appendChild(inner);
+  scene.appendChild(el);
+}
+
+createBrainCoral(W * 0.18, 50, 40, '#cc44ff', '#cc44ff88', -1);
+createBrainCoral(W * 0.68, 60, 45, '#ff6633', '#ff663388', -2.5);
+createBrainCoral(W * 0.44, 35, 28, '#00ddcc', '#00ddcc88', -0.5);
+
+// ========== MUSHROOM CORALS ==========
+function createMushroomCoral(x, w, h, color, glowColor, delay) {
+  const el = document.createElement('div');
+  el.className = 'coral coral-mushroom';
+  el.style.cssText = `
+    left: ${x}px; width: ${w}px; height: ${h}px;
+    background: linear-gradient(180deg, ${color} 0%, ${color}66 100%);
+    box-shadow: 0 0 12px ${glowColor}, 0 0 25px ${glowColor}66;
+    animation-delay: ${delay}s;
+  `;
+  // Stem
+  const stem = document.createElement('div');
+  stem.style.cssText = `
+    position: absolute; bottom: -12px; left: 50%; width: 6px; height: 14px;
+    transform: translateX(-50%); background: ${color}88; border-radius: 2px;
+  `;
+  el.appendChild(stem);
+  scene.appendChild(el);
+}
+
+createMushroomCoral(W * 0.28, 30, 20, '#ffaa00', '#ffaa0088', -1.5);
+createMushroomCoral(W * 0.92, 25, 16, '#44ffaa', '#44ffaa88', -3);
+createMushroomCoral(W * 0.75, 22, 14, '#ff66cc', '#ff66cc88', -0.8);
+
+// ========== ANEMONES ==========
+function createAnemone(x, color, glowColor, tentacleCount, baseW) {
+  const group = document.createElement('div');
+  group.className = 'anemone';
+  group.style.left = x + 'px';
+
+  const base = document.createElement('div');
+  base.className = 'base';
+  base.style.cssText = `width: ${baseW}px; height: ${baseW * 0.5}px; left: ${-baseW/2}px;
+    background: radial-gradient(ellipse, ${color}aa 0%, ${color}44 100%);
+    box-shadow: 0 0 10px ${glowColor}44;`;
+  group.appendChild(base);
+
+  for (let i = 0; i < tentacleCount; i++) {
+    const t = document.createElement('div');
+    t.className = 'tentacle';
+    const h = 25 + Math.random() * 25;
+    const spread = (i - tentacleCount/2) * (baseW * 0.7 / tentacleCount);
+    const swayRange = 8 + Math.random() * 12;
+    t.style.cssText = `
+      height: ${h}px; left: ${spread}px;
+      background: linear-gradient(to top, ${color}88, ${glowColor});
+      --sway-dur: ${2.5 + Math.random()*2}s;
+      --sway-from: ${-swayRange}deg;
+      --sway-to: ${swayRange}deg;
+      animation-delay: ${-Math.random()*3}s;
+    `;
+
+    const tip = document.createElement('div');
+    tip.className = 'tentacle-tip';
+    tip.style.cssText = `
+      background: ${glowColor};
+      box-shadow: 0 0 6px ${glowColor}, 0 0 12px ${glowColor}88;
+      animation-delay: ${-Math.random()*2}s;
+    `;
+    t.appendChild(tip);
+    group.appendChild(t);
+  }
+
+  scene.appendChild(group);
+}
+
+createAnemone(W * 0.15, '#cc22aa', '#ff44dd', 9, 40);
+createAnemone(W * 0.48, '#22aa66', '#44ffaa', 11, 45);
+createAnemone(W * 0.88, '#aa6622', '#ffaa44', 8, 35);
+
+// ========== FISH ==========
+function createFish(x, y, size, bodyColor, glowColor, dir, swimDur, name) {
+  const fish = document.createElement('div');
+  fish.className = 'fish';
+  fish.style.cssText = `left:${x}px; top:${y}px; --fish-glow:${glowColor}; --swim-dur:${swimDur}s;`;
+
+  const label = document.createElement('div');
+  label.className = 'fish-label';
+  label.style.color = glowColor;
+  label.textContent = name;
+  fish.appendChild(label);
+
+  const wrap = document.createElement('div');
+  wrap.className = 'fish-body-wrap';
+  wrap.style.animationDelay = `${-Math.random()*swimDur}s`;
+
+  // Glow aura
+  const glow = document.createElement('div');
+  glow.className = 'fish-glow';
+  glow.style.cssText = `
+    width: ${size*2}px; height: ${size*1.2}px;
+    top: ${-size*0.1}px; left: ${-size*0.3}px;
+    background: ${glowColor};
+    animation-delay: ${-Math.random()*3}s;
+  `;
+  wrap.appendChild(glow);
+
+  const body = document.createElement('div');
+  body.className = 'fish-body';
+  body.style.cssText = `transform-origin: center; ${dir < 0 ? 'transform: scaleX(-1);' : ''}`;
+  body.style.animationDelay = `${-Math.random()*1}s`;
+
+  // Main body
+  const main = document.createElement('div');
+  main.className = 'fish-main';
+  main.style.cssText = `
+    width: ${size}px; height: ${size*0.5}px;
+    background: linear-gradient(135deg, ${bodyColor} 0%, ${bodyColor}cc 50%, ${bodyColor}88 100%);
+    box-shadow: 0 0 ${size*0.3}px ${glowColor}66, inset 0 -${size*0.08}px ${size*0.15}px ${glowColor}33;
+  `;
+
+  // Eye
+  const eye = document.createElement('div');
+  eye.className = 'fish-eye';
+  const eyeS = size * 0.12;
+  eye.style.cssText = `width:${eyeS}px; height:${eyeS}px; top:${size*0.12}px; right:${size*0.12}px;`;
+
+  // Tail
+  const tail = document.createElement('div');
+  tail.className = 'fish-tail';
+  const tailS = size * 0.22;
+  tail.style.cssText = `
+    left: ${-tailS * 0.8}px;
+    border-top: ${tailS}px solid transparent;
+    border-bottom: ${tailS}px solid transparent;
+    border-right: ${tailS*1.2}px solid ${bodyColor}cc;
+    filter: drop-shadow(0 0 4px ${glowColor}44);
+  `;
+  tail.style.animationDelay = `${-Math.random()*0.6}s`;
+
+  // Dorsal fin
+  const fin = document.createElement('div');
+  fin.className = 'fish-fin';
+  fin.style.cssText = `
+    top: ${-size*0.08}px; left: ${size*0.25}px;
+    width: ${size*0.25}px; height: ${size*0.18}px;
+    background: ${glowColor}55;
+    border-radius: 0 60% 0 60%;
+    animation-delay: ${-Math.random()*1.5}s;
+  `;
+
+  body.appendChild(main);
+  body.appendChild(eye);
+  body.appendChild(tail);
+  body.appendChild(fin);
+  wrap.appendChild(body);
+  fish.appendChild(wrap);
+  scene.appendChild(fish);
+}
+
+createFish(W*0.12, 120, 52, '#2288cc', '#44ccff', 1, 9, 'Blue Tang');
+createFish(W*0.65, 80, 40, '#ff6644', '#ffaa66', -1, 7, 'Clownfish');
+createFish(W*0.4, 180, 36, '#ccaa22', '#ffdd44', 1, 11, 'Butterflyfish');
+createFish(W*0.78, 200, 30, '#aa44cc', '#dd88ff', -1, 8, 'Fairy Basslet');
+createFish(W*0.25, 250, 25, '#44cc88', '#88ffcc', 1, 10, 'Chromis');
+createFish(W*0.55, 300, 22, '#cc4488', '#ff88bb', -1, 12, 'Anthias');
+
+// Small schooling fish in background
+for (let i = 0; i < 8; i++) {
+  createFish(
+    W * (0.1 + Math.random() * 0.8),
+    50 + Math.random() * 150,
+    14 + Math.random() * 8,
+    '#5588aa',
+    '#88ccee',
+    Math.random() > 0.5 ? 1 : -1,
+    6 + Math.random() * 6,
+    ''
+  );
+}
+
+// ========== JELLYFISH ==========
+function createJellyfish(x, y, size, color, glowColor) {
+  const jelly = document.createElement('div');
+  jelly.className = 'jellyfish';
+  jelly.style.cssText = `left:${x}px; top:${y}px; animation-delay:${-Math.random()*12}s; animation-duration:${10+Math.random()*6}s;`;
+
+  const bell = document.createElement('div');
+  bell.className = 'jelly-bell';
+  bell.style.cssText = `
+    width: ${size}px; height: ${size*0.7}px;
+    background: radial-gradient(ellipse at 50% 30%, ${glowColor}66 0%, ${color}44 60%, ${color}22 100%);
+    box-shadow: 0 0 ${size*0.4}px ${glowColor}44, inset 0 ${size*0.1}px ${size*0.2}px ${glowColor}33;
+    animation-delay: ${-Math.random()*2.5}s;
+  `;
+
+  const tentacles = document.createElement('div');
+  tentacles.className = 'jelly-tentacles';
+  tentacles.style.top = (size * 0.6) + 'px';
+
+  for (let i = 0; i < 7; i++) {
+    const t = document.createElement('div');
+    t.className = 'jelly-t';
+    const h = size * (0.6 + Math.random() * 0.8);
+    t.style.cssText = `
+      height: ${h}px;
+      background: linear-gradient(180deg, ${glowColor}66 0%, ${glowColor}11 100%);
+      --jt-dur: ${2 + Math.random()*2}s;
+      --jt-from: ${-6 - Math.random()*8}deg;
+      --jt-to: ${6 + Math.random()*8}deg;
+      animation-delay: ${-Math.random()*3}s;
+    `;
+    tentacles.appendChild(t);
+  }
+
+  jelly.appendChild(bell);
+  jelly.appendChild(tentacles);
+  scene.appendChild(jelly);
+}
+
+createJellyfish(W * 0.8, 60, 36, '#cc44ff', '#ee88ff');
+createJellyfish(W * 0.2, 100, 28, '#44aaff', '#88ccff');
+
+// ========== PARTICLES (bioluminescent plankton) ==========
+for (let i = 0; i < 40; i++) {
+  const p = document.createElement('div');
+  p.className = 'particle';
+  const s = 1.5 + Math.random() * 3;
+  const hue = [170, 200, 280, 120, 60][Math.floor(Math.random()*5)];
+  p.style.cssText = `
+    width: ${s}px; height: ${s}px;
+    left: ${Math.random()*100}%; top: ${10 + Math.random()*70}%;
+    background: hsl(${hue}, 100%, 70%);
+    box-shadow: 0 0 ${s*2}px hsl(${hue}, 100%, 60%);
+    --p-dy: ${-30 - Math.random()*60}px;
+    --p-dx: ${-20 + Math.random()*40}px;
+    --p-opacity: ${0.3 + Math.random()*0.5};
+    animation-duration: ${6 + Math.random()*10}s;
+    animation-delay: ${-Math.random()*12}s;
+  `;
+  scene.appendChild(p);
+}
+</script>

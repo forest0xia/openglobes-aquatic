@@ -5,6 +5,7 @@ import {
   speciesFragmentShader,
   ANIM_CODE,
 } from './SpeciesShader';
+import { BLOOM_LAYER } from './constants';
 import type { Species, ViewingSpot } from '../hooks/useSpeciesData';
 import type { MigrationRoute } from '../data/migrations';
 
@@ -30,15 +31,95 @@ const TIER_MULT: Record<string, number> = {
   surprise: 0.9,
 };
 
+/** Per-species scale overrides (multiplier on final size). */
+const SPECIES_SCALE: Record<string, number> = {
+  '南极磷虾': 0.33,
+};
+
 /** Sprite pixel size to world-unit conversion factor. */
 const PX_TO_WORLD = 60;
 
-/** Altitude offset so sprites float above the globe surface (avoids z-fighting). */
-const SPRITE_ALT = 0.02;
+/** Altitude offset so sprites float above the globe surface. */
+const SPRITE_ALT = 0.015;
+
+// ---------------------------------------------------------------------------
+// Coral glow — bright emissive billboard rendered BEHIND coral sprites.
+// Selective UnrealBloomPass in GlobeRenderer picks this up and produces
+// a soft, physically-plausible halo.  The shader itself just outputs a
+// bright radial gradient — the bloom pass handles all the soft falloff.
+// ---------------------------------------------------------------------------
+const GLOW_SCALE = 1.3; // glow quad = sprite × 1.4
+
+const CORAL_GLOW_VS = `
+  attribute vec3 instancePos;
+  attribute vec2 instanceSize;
+  attribute vec3 instanceColor;
+  attribute float instancePhase;
+
+  uniform vec3 uCamPos;
+  uniform float uTime;
+
+  varying vec3 vColor;
+  varying float vAlpha;
+  varying vec2 vPos;
+
+  void main() {
+    // ── Same scatter offset as main species shader ──────────
+    vec3 pos = instancePos;
+    vec3 normal = normalize(pos);
+    vec3 tangent = normalize(cross(vec3(0.0, 1.0, 0.0), normal));
+    if (length(tangent) < 0.001) tangent = normalize(cross(vec3(1.0, 0.0, 0.0), normal));
+    vec3 bitangent = cross(normal, tangent);
+    float bodySize = max(instanceSize.x, instanceSize.y);
+    float scatter = 0.5 + bodySize * 0.7;
+    pos += tangent * sin(instancePhase * 1.7) * scatter
+         + bitangent * cos(instancePhase * 2.3) * scatter;
+
+    vec3 camDir = normalize(uCamPos);
+    vec3 spriteDir = normalize(pos);
+    float facing = dot(camDir, spriteDir);
+    vAlpha = smoothstep(0.0, 0.15, facing);
+    if (facing < -0.05) { gl_Position = vec4(0,-2,0,1); return; }
+
+    vColor = instanceColor;
+    vPos = position.xy;
+
+    // Fade glow when zoomed out so cumulative bloom stays consistent
+    float camDist = length(uCamPos);
+    vAlpha *= smoothstep(400.0, 180.0, camDist);
+
+    vec4 mv = modelViewMatrix * vec4(pos, 1.0);
+    vec2 sz = instanceSize * ${GLOW_SCALE.toFixed(1)};
+    mv.xy += position.xy * sz;
+    gl_Position = projectionMatrix * mv;
+  }
+`;
+const CORAL_GLOW_FS = `
+  uniform float uTime;
+  varying vec3 vColor;
+  varying float vAlpha;
+  varying vec2 vPos;
+
+  void main() {
+    float d = length(vPos);
+    // Smooth radial falloff — bloom handles the soft halo
+    float glow = 1.0 - smoothstep(0.0, 0.5, d);
+    if (glow < 0.01) discard;
+
+    // Gentle pulse
+    float pulse = 0.3 + 0.3 * sin(uTime * 2.0 + vColor.r * 15.0);
+
+    vec3 color = vColor * 0.2 * pulse;
+
+    gl_FragColor = vec4(color, glow * vAlpha);
+  }
+`;
 
 export class SpeciesLayer {
   private mesh: THREE.InstancedMesh | null = null;
   private material: THREE.ShaderMaterial | null = null;
+  private glowMesh: THREE.InstancedMesh | null = null;
+  private glowMat: THREE.ShaderMaterial | null = null;
   /** Index i corresponds to instance i — used by hitTest to return the Species. */
   private speciesRefs: Species[] = [];
   /** Lat/lng of each instance for flyTo. */
@@ -93,13 +174,32 @@ export class SpeciesLayer {
 
     const resolved: Resolved[] = [];
 
+    // Species that get extra clones packed tightly together
+    const SWARM_MULT: Record<string, number> = { '南极磷虾': 3 };
+    // Species that have too many spots — halve them
+    const HALVE_SPOTS = new Set(['大西洋鲟', '美洲西鲱', '北梭鱼', '斑纹银汉鱼']);
+
     // 1. Species viewing spots
     for (const sp of species) {
       const spriteName = sp.sprite.replace('.png', '');
       const rect = manifest.sprites[spriteName];
       if (!rect) continue;
+      const copies = SWARM_MULT[sp.nameZh] ?? 1;
+      const halve = HALVE_SPOTS.has(sp.nameZh);
+      let spotIdx = 0;
+
       for (const spot of sp.viewingSpots) {
+        if (halve && spotIdx++ % 2 === 1) continue;
         resolved.push({ sp, spot, rect });
+        // Extra clones with tiny lat/lng jitter (tight cluster, same area)
+        for (let c = 1; c < copies; c++) {
+          const angle = (c / copies) * Math.PI * 2 + spot.lat * 0.1;
+          const jitter = 0.3; // ~0.3° ≈ 33 km — tight cluster
+          resolved.push({
+            sp, rect,
+            spot: { ...spot, lat: spot.lat + Math.sin(angle) * jitter, lng: spot.lng + Math.cos(angle) * jitter },
+          });
+        }
       }
     }
 
@@ -187,6 +287,12 @@ export class SpeciesLayer {
     this.positions = [];
     this.scales = [];
 
+    const _normal = new THREE.Vector3();
+    const _tangent = new THREE.Vector3();
+    const _bitangent = new THREE.Vector3();
+    const _up = new THREE.Vector3(0, 1, 0);
+    const _right = new THREE.Vector3(1, 0, 0);
+
     for (let i = 0; i < count; i++) {
       const { sp, spot, rect } = resolved[i];
       latLngToVec3(spot.lat, spot.lng, GLOBE_RADIUS, SPRITE_ALT, _v);
@@ -194,7 +300,6 @@ export class SpeciesLayer {
       posArr[i * 3] = _v.x;
       posArr[i * 3 + 1] = _v.y;
       posArr[i * 3 + 2] = _v.z;
-      this.positions.push(_v.clone());
 
       // UV rect (normalized to sheet)
       uvArr[i * 4] = rect.x / sheetWidth;
@@ -212,12 +317,26 @@ export class SpeciesLayer {
       const scaleMult = SCALE_MAP[sp.display.scale] ?? 1.0;
       const tierMult = TIER_MULT[sp.tier] ?? 1.0;
       const extra = resolved[i].scaleFactor ?? 1.0;
-      const mult = scaleMult * tierMult * extra;
+      const speciesScale = SPECIES_SCALE[sp.nameZh] ?? 1.0;
+      const mult = scaleMult * tierMult * extra * speciesScale;
       const worldW = (rect.w / PX_TO_WORLD) * mult;
       const worldH = (rect.h / PX_TO_WORLD) * mult;
       sizeArr[i * 2] = worldW;
       sizeArr[i * 2 + 1] = worldH;
       this.scales.push(Math.max(worldW, worldH));
+
+      // Replicate the shader scatter offset so hitTest positions match visuals.
+      // Must match SpeciesShader.ts vertex shader scatter logic exactly.
+      _normal.copy(_v).normalize();
+      _tangent.crossVectors(_up, _normal).normalize();
+      if (_tangent.length() < 0.001) _tangent.crossVectors(_right, _normal).normalize();
+      _bitangent.crossVectors(_normal, _tangent);
+      const bodySize = Math.max(worldW, worldH);
+      const scatter = 0.5 + bodySize * 0.7;
+      const scattered = _v.clone();
+      scattered.addScaledVector(_tangent, Math.sin(phaseArr[i] * 1.7) * scatter);
+      scattered.addScaledVector(_bitangent, Math.cos(phaseArr[i] * 2.3) * scatter);
+      this.positions.push(scattered);
 
       // Glow color from species display.color
       const hexColor = sp.display.color || '#4cc9f0';
@@ -289,6 +408,54 @@ export class SpeciesLayer {
     this.mesh.instanceMatrix.needsUpdate = true;
 
     this.scene.add(this.mesh);
+
+    // --- Glow for corals + select reef species --------------------------------
+    const GLOW_SPECIES = new Set([
+      '迷宫脑珊瑚', '叶片脑珊瑚', '团块滨珊瑚', '火珊瑚', '棘冠海星', '大砗磲',
+    ]);
+    const coralIdx: number[] = [];
+    for (let i = 0; i < count; i++) {
+      if (animArr[i] < 0.5 || GLOW_SPECIES.has(resolved[i].sp.nameZh)) {
+        coralIdx.push(i);
+      }
+    }
+
+    if (coralIdx.length > 0) {
+      const n = coralIdx.length;
+      const gGeo = new THREE.PlaneGeometry(1, 1);
+      const gPos = new Float32Array(n * 3);
+      const gSz  = new Float32Array(n * 2);
+      const gCol = new Float32Array(n * 3);
+      const gPh  = new Float32Array(n);
+      for (let j = 0; j < n; j++) {
+        const i = coralIdx[j];
+        gPos[j*3] = posArr[i*3]; gPos[j*3+1] = posArr[i*3+1]; gPos[j*3+2] = posArr[i*3+2];
+        gSz[j*2] = sizeArr[i*2]; gSz[j*2+1] = sizeArr[i*2+1];
+        gCol[j*3] = colorArr[i*3]; gCol[j*3+1] = colorArr[i*3+1]; gCol[j*3+2] = colorArr[i*3+2];
+        gPh[j] = phaseArr[i];
+      }
+      gGeo.setAttribute('instancePos',   new THREE.InstancedBufferAttribute(gPos, 3));
+      gGeo.setAttribute('instanceSize',  new THREE.InstancedBufferAttribute(gSz, 2));
+      gGeo.setAttribute('instanceColor', new THREE.InstancedBufferAttribute(gCol, 3));
+      gGeo.setAttribute('instancePhase', new THREE.InstancedBufferAttribute(gPh, 1));
+
+      this.glowMat = new THREE.ShaderMaterial({
+        vertexShader: CORAL_GLOW_VS, fragmentShader: CORAL_GLOW_FS,
+        uniforms: { uTime: { value: 0 }, uCamPos: { value: new THREE.Vector3() } },
+        transparent: true, depthWrite: false, depthTest: false,
+        blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+      });
+      this.glowMesh = new THREE.InstancedMesh(gGeo, this.glowMat, n);
+      this.glowMesh.frustumCulled = false;
+      this.glowMesh.renderOrder = 9; // before sprites (10)
+      this.glowMesh.layers.enable(BLOOM_LAYER); // selective bloom picks this up
+      const id = new THREE.Matrix4();
+      for (let j = 0; j < n; j++) this.glowMesh.setMatrixAt(j, id);
+      this.glowMesh.instanceMatrix.needsUpdate = true;
+      this.scene.add(this.glowMesh);
+      console.log(`[SpeciesLayer] coral glow: ${n} instances`);
+    }
+
     console.log(`[SpeciesLayer] built ${count} instances from ${species.length} species` +
       (migrationRoutes ? ` + ${migrationRoutes.length} routes` : ''));
   }
@@ -334,6 +501,10 @@ export class SpeciesLayer {
     if (!this.material) return;
     this.material.uniforms.uTime.value = time;
     this.material.uniforms.uCamPos.value.copy(camera.position);
+    if (this.glowMat) {
+      this.glowMat.uniforms.uTime.value = time;
+      this.glowMat.uniforms.uCamPos.value.copy(camera.position);
+    }
 
     // Smooth highlight animation with ease-out cubic curve
     const wantHighlight = this.material.uniforms.uHighlightIdx.value >= 0;
@@ -442,6 +613,12 @@ export class SpeciesLayer {
       this.material.dispose();
       this.material = null;
     }
+    if (this.glowMesh) {
+      this.scene.remove(this.glowMesh);
+      this.glowMesh.geometry.dispose();
+      this.glowMesh = null;
+    }
+    if (this.glowMat) { this.glowMat.dispose(); this.glowMat = null; }
     this.speciesRefs = [];
     this.spotRefs = [];
     this.positions = [];

@@ -633,7 +633,86 @@ function playFishBubble(ctx: AudioContext, dest: AudioNode): void {
   }
 }
 
-/** Dispatch to the correct synthesizer. */
+// ---------------------------------------------------------------------------
+// Real audio recordings (NOAA public domain) — preferred over synthesis
+// ---------------------------------------------------------------------------
+
+/** Audio file paths per category. Multiple variants randomly selected. */
+const AUDIO_FILES: Partial<Record<SoundCategory, string[]>> = {
+  whale_song: ['/audio/whale-song-1.mp3', '/audio/whale-song-2.mp3', '/audio/whale-song-3.mp3'],
+  whale_click: ['/audio/whale-click-1.mp3', '/audio/whale-click-2.mp3'],
+  dolphin_whistle: ['/audio/dolphin-whistle-1.mp3', '/audio/dolphin-whistle-2.mp3'],
+  dolphin_click: ['/audio/dolphin-click-1.mp3', '/audio/dolphin-click-2.mp3'],
+  seal_bark: ['/audio/seal-bark-1.mp3', '/audio/seal-bark-2.mp3'],
+};
+
+/** Extra species-specific recordings (matched before category lookup). */
+const SPECIES_AUDIO: [RegExp, string[]][] = [
+  [/orca|killer|虎鲸/i, ['/audio/orca-call-1.mp3']],
+  [/beluga|白鲸/i, ['/audio/beluga-call-1.mp3']],
+];
+
+/** Cache decoded AudioBuffers to avoid re-fetching. */
+const audioBufferCache = new Map<string, AudioBuffer | null>();
+
+/** Load and cache an audio file as an AudioBuffer. */
+async function loadAudioBuffer(ctx: AudioContext, url: string): Promise<AudioBuffer | null> {
+  if (audioBufferCache.has(url)) return audioBufferCache.get(url)!;
+  try {
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const arrayBuf = await resp.arrayBuffer();
+    const audioBuf = await ctx.decodeAudioData(arrayBuf);
+    audioBufferCache.set(url, audioBuf);
+    return audioBuf;
+  } catch {
+    audioBufferCache.set(url, null);
+    return null;
+  }
+}
+
+/**
+ * Try to play a real recording for the given category + species.
+ * Returns true if a recording was found and playback started.
+ */
+function tryPlayRecording(
+  ctx: AudioContext,
+  dest: AudioNode,
+  category: SoundCategory,
+  species: Species,
+): boolean {
+  // Check species-specific recordings first
+  const searchStr = `${species.name} ${species.nameZh} ${species.scientificName}`;
+  for (const [pattern, urls] of SPECIES_AUDIO) {
+    if (pattern.test(searchStr)) {
+      const url = urls[Math.floor(Math.random() * urls.length)];
+      playAudioFile(ctx, dest, url);
+      return true;
+    }
+  }
+  // Check category recordings
+  const files = AUDIO_FILES[category];
+  if (files && files.length > 0) {
+    const url = files[Math.floor(Math.random() * files.length)];
+    playAudioFile(ctx, dest, url);
+    return true;
+  }
+  return false;
+}
+
+/** Play an audio file through the Web Audio graph. */
+function playAudioFile(ctx: AudioContext, dest: AudioNode, url: string): void {
+  // Fire-and-forget async playback
+  loadAudioBuffer(ctx, url).then((buf) => {
+    if (!buf) return;
+    const source = ctx.createBufferSource();
+    source.buffer = buf;
+    source.connect(dest);
+    source.start();
+  });
+}
+
+/** Dispatch to synthesizer (fallback when no recording available). */
 const SYNTH_MAP: Record<SoundCategory, (ctx: AudioContext, dest: AudioNode) => void> = {
   whale_song: playWhaleSong,
   whale_click: playWhaleClick,
@@ -677,7 +756,11 @@ export function playHoverSound(species: Species): void {
 
   const categories = getSoundCategories(species);
   const cat = categories[Math.floor(Math.random() * categories.length)];
-  SYNTH_MAP[cat](ctx, hoverGain);
+
+  // Try real recording first, fall back to synthesis
+  if (!tryPlayRecording(ctx, hoverGain, cat, species)) {
+    SYNTH_MAP[cat](ctx, hoverGain);
+  }
 }
 
 /**
@@ -693,7 +776,11 @@ export function playClickSound(species: Species): void {
 
   const categories = getSoundCategories(species);
   const cat = categories[Math.floor(Math.random() * categories.length)];
-  SYNTH_MAP[cat](ctx, dest);
+
+  // Try real recording first, fall back to synthesis
+  if (!tryPlayRecording(ctx, dest, cat, species)) {
+    SYNTH_MAP[cat](ctx, dest);
+  }
 }
 
 /**
@@ -735,4 +822,65 @@ export function disposeAudio(): void {
     audioCtx = null;
     masterGain = null;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Underwater ambient — soft ocean current loop
+// ---------------------------------------------------------------------------
+
+let uwAmbientSource: AudioBufferSourceNode | null = null;
+let uwAmbientGain: GainNode | null = null;
+
+/** Start a gentle underwater ambient sound (looping synthesized ocean). */
+export function startUnderwaterAmbient(): void {
+  const ctx = getAudioCtx();
+  if (uwAmbientSource) return; // already playing
+
+  // Synthesize a ~4-second ocean rumble loop
+  const duration = 4;
+  const sampleRate = ctx.sampleRate;
+  const length = Math.floor(sampleRate * duration);
+  const buffer = ctx.createBuffer(1, length, sampleRate);
+  const data = buffer.getChannelData(0);
+
+  // Low-frequency ocean rumble with gentle modulation
+  for (let i = 0; i < length; i++) {
+    const t = i / sampleRate;
+    // Deep rumble (30-80 Hz band)
+    const rumble = Math.sin(t * 40 * Math.PI * 2) * 0.3
+                 + Math.sin(t * 60 * Math.PI * 2) * 0.2
+                 + Math.sin(t * 25 * Math.PI * 2) * 0.15;
+    // Gentle water movement noise
+    const noise = (Math.random() * 2 - 1) * 0.05;
+    // Slow amplitude modulation (breathing of the ocean)
+    const mod = 0.6 + 0.4 * Math.sin(t * 0.5 * Math.PI * 2);
+    data[i] = (rumble + noise) * mod;
+  }
+
+  uwAmbientGain = ctx.createGain();
+  uwAmbientGain.gain.value = 0.15; // very soft
+  uwAmbientGain.connect(getMasterGain());
+
+  // Low-pass filter to keep it deep and muffled
+  const filter = ctx.createBiquadFilter();
+  filter.type = 'lowpass';
+  filter.frequency.value = 200;
+  filter.connect(uwAmbientGain);
+
+  uwAmbientSource = ctx.createBufferSource();
+  uwAmbientSource.buffer = buffer;
+  uwAmbientSource.loop = true;
+  uwAmbientSource.connect(filter);
+  uwAmbientSource.start();
+}
+
+/** Stop the underwater ambient sound with a fade-out. */
+export function stopUnderwaterAmbient(): void {
+  if (!uwAmbientGain || !uwAmbientSource) return;
+  const ctx = getAudioCtx();
+  uwAmbientGain.gain.linearRampToValueAtTime(0, ctx.currentTime + 1.0);
+  const src = uwAmbientSource;
+  setTimeout(() => { try { src.stop(); } catch {} }, 1100);
+  uwAmbientSource = null;
+  uwAmbientGain = null;
 }

@@ -1,7 +1,7 @@
 import type { TrailDatum } from '../types';
 
-const WARM = ['rgba(239, 71, 111, 0.35)', 'rgba(249, 199, 79, 0.2)'];
-const COLD = ['rgba(76, 201, 240, 0.35)', 'rgba(86, 214, 160, 0.2)'];
+const WARM = ['#ef476f', '#f9c74f'];
+const COLD = ['#4cc9f0', '#56d6a0'];
 
 const BASE: Partial<TrailDatum> = { width: 0.8, dashLength: 0.2, dashGap: 0.1, altitude: 0.003 };
 
@@ -137,4 +137,4 @@ export const OCEAN_CURRENTS: TrailDatum[] = [
   },
 ];
 
-export const CURRENTS_DEFAULT_VISIBLE = false; // toggle-able
+export const CURRENTS_DEFAULT_VISIBLE = true; // on by default

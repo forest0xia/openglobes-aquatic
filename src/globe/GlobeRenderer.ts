@@ -1,4 +1,7 @@
 import * as THREE from 'three';
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { createEarthMesh, type EarthMeshOptions } from './EarthMesh';
 import { createAtmosphere, type AtmosphereConfig } from './AtmosphereShader';
 import { SpeciesLayer } from './SpeciesLayer';
@@ -12,7 +15,15 @@ import { latLngToVec3, GLOBE_RADIUS } from './coordUtils';
 // Camera uses exponential smoothing (ported from openglobes-solar):
 //   rotation → near-instant (0.0001 time constant)
 //   zoom/pan → smooth fluid  (0.008 time constant)
+//
+// Selective bloom: base scene renders directly (unchanged), then bloom-only
+// objects are rendered to a separate EffectComposer → UnrealBloomPass and
+// composited on top via a full-screen additive quad.  This avoids running the
+// main scene through post-processing, so the globe looks identical to before.
 // ---------------------------------------------------------------------------
+
+import { BLOOM_LAYER } from './constants';
+export { BLOOM_LAYER };
 
 export interface GlobeThemeConfig {
   globeTexture: string;
@@ -44,7 +55,7 @@ export class GlobeRenderer {
   private earth: THREE.Mesh | null = null;
   private atmo: { rim: THREE.Mesh; haze: THREE.Mesh; update: (c: THREE.Camera) => void } | null = null;
   private ambientLight: THREE.AmbientLight;
-  private fillLight: THREE.PointLight;
+  // No fill light — uniform ambient handles all illumination
 
   readonly speciesLayer: SpeciesLayer;
   readonly trailLayer: TrailLayer;
@@ -61,9 +72,20 @@ export class GlobeRenderer {
   private uwMouseLook = false;
   private uwLastMouse = { x: 0, y: 0 };
   private uwKeys = new Set<string>();
+  /** Joystick input: x = right/left (-1..1), y = forward/back (-1..1) */
+  private uwJoystick = { x: 0, y: 0 };
+  /** Vertical joystick: positive = up, negative = down (-1..1) */
+  private uwJoystickV = 0;
   private savedBackground: THREE.Color | THREE.Texture | null = null;
   private savedFog: THREE.Fog | THREE.FogExp2 | null = null;
   private onUnderwaterChangeCb: ((isUnderwater: boolean) => void) | null = null;
+
+  // Selective bloom — only processes glow objects, composited additively
+  private bloomComposer: EffectComposer | null = null;
+  private bloomLayer = new THREE.Layers();
+  private bloomOverlayScene: THREE.Scene | null = null;
+  private bloomOverlayCamera: THREE.OrthographicCamera | null = null;
+  private bloomOverlayMat: THREE.ShaderMaterial | null = null;
 
   private frameId = 0;
   private lastTime = 0;
@@ -88,17 +110,16 @@ export class GlobeRenderer {
     // Camera
     this.camera = new THREE.PerspectiveCamera(50, 1, 1, 2000);
 
-    // Lighting
-    this.ambientLight = new THREE.AmbientLight(0x405060, 0.8);
+    // Lighting — uniform ambient only, no directional/specular.
+    // Full illumination on all sides of the globe (daytime everywhere).
+    this.ambientLight = new THREE.AmbientLight(0xffffff, 3.0);
     this.scene.add(this.ambientLight);
 
-    const dirLight = new THREE.DirectionalLight(0xffffff, 0.6 * Math.PI);
-    dirLight.position.set(1, 1, 1);
-    this.scene.add(dirLight);
+    // Bloom layer mask (used to identify bloom objects during selective pass)
+    this.bloomLayer.set(BLOOM_LAYER);
 
-    // Camera fill light — softens shadow side, fades with distance
-    this.fillLight = new THREE.PointLight(0xffffff, 1.5, 0, 0);
-    this.scene.add(this.fillLight);
+    // Starfield background
+    this.createStarfield();
 
     // Layers
     this.speciesLayer = new SpeciesLayer(this.scene);
@@ -111,11 +132,43 @@ export class GlobeRenderer {
 
   private mounted = false;
 
+  /** Scatter glowing points across the sky. */
+  private createStarfield(): void {
+    const count = 3000;
+    const positions = new Float32Array(count * 3);
+    const radius = 800;
+
+    for (let i = 0; i < count; i++) {
+      const theta = Math.random() * Math.PI * 2;
+      const phi = Math.acos(2 * Math.random() - 1);
+      positions[i * 3] = radius * Math.sin(phi) * Math.cos(theta);
+      positions[i * 3 + 1] = radius * Math.sin(phi) * Math.sin(theta);
+      positions[i * 3 + 2] = radius * Math.cos(phi);
+    }
+
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+
+    const material = new THREE.PointsMaterial({
+      color: 0xccddff,
+      size: 1.5,
+      transparent: true,
+      opacity: 0.8,
+      sizeAttenuation: false, // fixed screen pixel size regardless of distance
+      depthWrite: false,
+    });
+
+    const stars = new THREE.Points(geometry, material);
+    stars.renderOrder = -1;
+    this.scene.add(stars);
+  }
+
   mount(container: HTMLElement): void {
     if (this.mounted) return; // prevent double-mount (React StrictMode)
     this.mounted = true;
     this.container = container;
     container.appendChild(this.renderer.domElement);
+    this.setupBloomPipeline();
     this.handleResize();
     window.addEventListener('resize', this.handleResize);
 
@@ -129,10 +182,14 @@ export class GlobeRenderer {
     el.addEventListener('touchmove', this.onTouchMove, { passive: false });
     el.addEventListener('touchend', this.onTouchEnd);
 
-    // Underwater free-look controls
+    // Underwater free-look controls (mouse + touch)
     el.addEventListener('mousedown', this.onUwMouseDown);
     el.addEventListener('mousemove', this.onUwMouseMove);
     el.addEventListener('mouseup', this.onUwMouseUp);
+    el.addEventListener('touchstart', this.onUwTouchStart, { passive: true });
+    el.addEventListener('touchmove', this.onUwTouchMove, { passive: true });
+    el.addEventListener('touchend', this.onUwTouchEnd);
+    el.addEventListener('touchcancel', this.onUwTouchEnd);
     document.addEventListener('keydown', this.onUwKeyDown);
     document.addEventListener('keyup', this.onUwKeyUp);
 
@@ -140,6 +197,67 @@ export class GlobeRenderer {
     document.addEventListener('visibilitychange', this.onVisibilityChange);
 
     this.animate();
+  }
+
+  // ─── Selective Bloom Pipeline ────────────────────────────────────────────
+
+  private setupBloomPipeline(): void {
+    const dpr = this.renderer.getPixelRatio();
+    const w = Math.round((this.renderer.domElement.clientWidth || 1) * dpr);
+    const h = Math.round((this.renderer.domElement.clientHeight || 1) * dpr);
+
+    // Bloom-only composer — processes ONLY glow objects, never the full scene
+    const bloomRT = new THREE.WebGLRenderTarget(w, h, { type: THREE.HalfFloatType });
+    this.bloomComposer = new EffectComposer(this.renderer, bloomRT);
+    this.bloomComposer.renderToScreen = false;
+    this.bloomComposer.addPass(new RenderPass(this.scene, this.camera));
+    this.bloomComposer.addPass(new UnrealBloomPass(new THREE.Vector2(w, h), 0.4, 0.2, 0));
+
+    // Overlay quad — draws the bloom texture on top of the canvas additively
+    this.bloomOverlayScene = new THREE.Scene();
+    this.bloomOverlayCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+    this.bloomOverlayMat = new THREE.ShaderMaterial({
+      uniforms: { tBloom: { value: null } },
+      vertexShader: /* glsl */ `
+        varying vec2 vUv;
+        void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }
+      `,
+      fragmentShader: /* glsl */ `
+        uniform sampler2D tBloom;
+        varying vec2 vUv;
+        void main() { gl_FragColor = texture2D(tBloom, vUv); }
+      `,
+      blending: THREE.AdditiveBlending,
+      transparent: true,
+      depthTest: false,
+      depthWrite: false,
+    });
+    const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.bloomOverlayMat);
+    this.bloomOverlayScene.add(quad);
+  }
+
+  /** Reusable Color for clear-color save/restore during bloom pass. */
+  private _savedClearColor = new THREE.Color();
+  /** Objects hidden during bloom pass. */
+  private _hiddenForBloom: THREE.Object3D[] = [];
+
+  /** Hide all non-bloom objects before the bloom-only render pass. */
+  private hideNonBloom(): void {
+    this._hiddenForBloom.length = 0;
+    this.scene.traverse((obj) => {
+      if (obj === this.scene) return;
+      if (this.bloomLayer.test(obj.layers)) return;
+      if (obj.visible) {
+        this._hiddenForBloom.push(obj);
+        obj.visible = false;
+      }
+    });
+  }
+
+  /** Restore visibility after bloom pass. */
+  private restoreVisibility(): void {
+    for (const obj of this._hiddenForBloom) obj.visible = true;
+    this._hiddenForBloom.length = 0;
   }
 
   // ─── Theme ──────────────────────────────────────────────────────────────
@@ -162,8 +280,9 @@ export class GlobeRenderer {
       this.atmo = null;
     }
 
-    // Background
-    this.scene.background = new THREE.Color(config.backgroundColor);
+    // Background color rendered behind everything (including stars).
+    // Stars are at z=900, so they render ON TOP of this clear color.
+    this.renderer.setClearColor(config.backgroundColor, 1);
 
     // Earth
     this.earth = createEarthMesh(config.terrain ?? { textureUrl: config.globeTexture });
@@ -182,6 +301,17 @@ export class GlobeRenderer {
 
   getCamera(): THREE.PerspectiveCamera { return this.camera; }
   getRenderer(): THREE.WebGLRenderer { return this.renderer; }
+
+  /** Set joystick input for underwater movement. x: right/left, y: forward/back. Range -1..1. */
+  setUnderwaterJoystick(x: number, y: number): void {
+    this.uwJoystick.x = x;
+    this.uwJoystick.y = y;
+  }
+
+  /** Set vertical joystick input. Positive = ascend, negative = descend. Range -1..1. */
+  setUnderwaterVertical(v: number): void {
+    this.uwJoystickV = v;
+  }
 
   /** OrbitControls-compatible target for flyTo (returns the target vector). */
   getControls(): { target: THREE.Vector3; update: () => void; autoRotate: boolean } {
@@ -239,15 +369,29 @@ export class GlobeRenderer {
     this.savedBackground = this.scene.background as THREE.Color | null;
     this.savedFog = this.scene.fog;
 
-    // Start transition
+    // Instant switch — no transition animation
     this._isUnderwater = true;
-    this.uwTransition = 0;
-    this.uwTransitionDir = 'in';
+    this.uwTransition = 1;
+    this.uwTransitionDir = null;
+
+    // Hide globe elements immediately
+    if (this.earth) this.earth.visible = false;
+    if (this.atmo) { this.atmo.rim.visible = false; this.atmo.haze.visible = false; }
+    this.speciesLayer.setVisible(false);
+    this.trailLayer.setVisible(false);
+
+    // Apply underwater scene
+    this.scene.background = new THREE.Color(0x041830);
+    this.scene.fog = this.underwaterScene.createFog();
+    this.underwaterScene.show();
 
     // Initialize underwater camera state
-    this.uwCamPos.set(0, 0, 0);
+    this.uwCamPos.set(0, 2, 15);
     this.uwCamYaw = 0;
     this.uwCamPitch = 0;
+    this.camera.near = 0.1;
+    this.camera.far = 400;
+    this.camera.updateProjectionMatrix();
 
     this.onUnderwaterChangeCb?.(true);
   }
@@ -282,6 +426,42 @@ export class GlobeRenderer {
     this.uwMouseLook = false;
   };
 
+  /** Underwater touch look-around (single finger on the canvas, not on joystick). */
+  private uwTouchId: number | null = null;
+  private onUwTouchStart = (e: TouchEvent): void => {
+    if (!this._isUnderwater || this.uwTransitionDir) return;
+    if (this.uwTouchId !== null) return; // already tracking a finger
+    const touch = e.touches[0];
+    this.uwTouchId = touch.identifier;
+    this.uwLastMouse.x = touch.clientX;
+    this.uwLastMouse.y = touch.clientY;
+  };
+
+  private onUwTouchMove = (e: TouchEvent): void => {
+    if (!this._isUnderwater || this.uwTouchId === null) return;
+    for (let i = 0; i < e.changedTouches.length; i++) {
+      const touch = e.changedTouches[i];
+      if (touch.identifier !== this.uwTouchId) continue;
+      const dx = touch.clientX - this.uwLastMouse.x;
+      const dy = touch.clientY - this.uwLastMouse.y;
+      this.uwLastMouse.x = touch.clientX;
+      this.uwLastMouse.y = touch.clientY;
+      this.uwCamYaw -= dx * 0.003;
+      this.uwCamPitch = Math.max(-1.2, Math.min(1.2,
+        this.uwCamPitch - dy * 0.003));
+      break;
+    }
+  };
+
+  private onUwTouchEnd = (e: TouchEvent): void => {
+    for (let i = 0; i < e.changedTouches.length; i++) {
+      if (e.changedTouches[i].identifier === this.uwTouchId) {
+        this.uwTouchId = null;
+        break;
+      }
+    }
+  };
+
   private onUwKeyDown = (e: KeyboardEvent): void => {
     if (!this._isUnderwater) return;
     this.uwKeys.add(e.key.toLowerCase());
@@ -294,27 +474,9 @@ export class GlobeRenderer {
   // ─── Underwater animation tick ─────────────────────────────────────────
 
   private animateUnderwater(dt: number): void {
-    const TRANSITION_SPEED = 1.2; // full transition in ~0.8s
+    const TRANSITION_SPEED = 1.2;
 
-    if (this.uwTransitionDir === 'in') {
-      this.uwTransition = Math.min(1, this.uwTransition + dt * TRANSITION_SPEED);
-      if (this.uwTransition >= 1) {
-        this.uwTransitionDir = null;
-        // Fully underwater — hide globe elements
-        if (this.earth) this.earth.visible = false;
-        if (this.atmo) {
-          this.atmo.rim.visible = false;
-          this.atmo.haze.visible = false;
-        }
-        this.speciesLayer.setVisible(false);
-        this.trailLayer.setVisible(false);
-
-        // Apply underwater scene
-        this.scene.background = new THREE.Color(0x041830);
-        this.scene.fog = this.underwaterScene.createFog();
-        this.underwaterScene.show();
-      }
-    } else if (this.uwTransitionDir === 'out') {
+    if (this.uwTransitionDir === 'out') {
       this.uwTransition = Math.max(0, this.uwTransition - dt * TRANSITION_SPEED);
       if (this.uwTransition <= 0) {
         this.uwTransitionDir = null;
@@ -350,29 +512,10 @@ export class GlobeRenderer {
       this.speciesLayer.setVisible(true);
     }
 
-    // Transition camera: interpolate between globe view and underwater
-    if (this.uwTransition < 1 && this.uwTransition > 0) {
-      // During transition: zoom camera toward the dive point
-      const diveDir = this.uwDiveTarget.clone().normalize();
-      // Camera orbits at curDist; move it close to the surface
-      const transitionDist = THREE.MathUtils.lerp(this.curDist, GLOBE_RADIUS + 2, this.uwTransition);
-      const camPos = diveDir.clone().multiplyScalar(transitionDist);
-      this.camera.position.copy(camPos);
-      this.camera.lookAt(this.uwDiveTarget);
-
-      // Blend scene background
-      const globeBg = this.savedBackground instanceof THREE.Color
-        ? this.savedBackground : new THREE.Color(0x050a12);
-      const uwBg = new THREE.Color(0x041830);
-      const blended = globeBg.clone().lerp(uwBg, this.uwTransition);
-      this.scene.background = blended;
-      return;
-    }
-
     // Fully underwater — free-look camera
     if (this.uwTransition >= 1) {
       // WASD movement
-      const moveSpeed = 8 * dt;
+      const moveSpeed = 4 * dt;
       const forward = new THREE.Vector3(
         -Math.sin(this.uwCamYaw) * Math.cos(this.uwCamPitch),
         Math.sin(this.uwCamPitch),
@@ -382,6 +525,7 @@ export class GlobeRenderer {
         Math.cos(this.uwCamYaw), 0, -Math.sin(this.uwCamYaw),
       );
 
+      // Keyboard input
       if (this.uwKeys.has('w') || this.uwKeys.has('arrowup')) {
         this.uwCamPos.addScaledVector(forward, moveSpeed);
       }
@@ -395,26 +539,32 @@ export class GlobeRenderer {
         this.uwCamPos.addScaledVector(right, moveSpeed);
       }
       if (this.uwKeys.has(' ')) {
-        this.uwCamPos.y += moveSpeed; // ascend
+        this.uwCamPos.y += moveSpeed;
       }
       if (this.uwKeys.has('shift')) {
-        this.uwCamPos.y -= moveSpeed; // descend
+        this.uwCamPos.y -= moveSpeed;
+      }
+      // Joystick input (desktop + mobile)
+      if (Math.abs(this.uwJoystick.x) > 0.05 || Math.abs(this.uwJoystick.y) > 0.05) {
+        this.uwCamPos.addScaledVector(forward, this.uwJoystick.y * moveSpeed * 3);
+        this.uwCamPos.addScaledVector(right, this.uwJoystick.x * moveSpeed * 3);
+      }
+      // Vertical joystick (up/down)
+      if (Math.abs(this.uwJoystickV) > 0.05) {
+        this.uwCamPos.y += this.uwJoystickV * moveSpeed * 3;
       }
 
-      // Gentle auto-forward drift for a "swimming" feel
-      this.uwCamPos.addScaledVector(forward, dt * 0.5);
-
       // Clamp position within bounds
-      this.uwCamPos.x = THREE.MathUtils.clamp(this.uwCamPos.x, -80, 80);
-      this.uwCamPos.y = THREE.MathUtils.clamp(this.uwCamPos.y, -22, 28);
-      this.uwCamPos.z = THREE.MathUtils.clamp(this.uwCamPos.z, -80, 80);
+      this.uwCamPos.x = THREE.MathUtils.clamp(this.uwCamPos.x, -120, 120);
+      this.uwCamPos.y = THREE.MathUtils.clamp(this.uwCamPos.y, -18, 15);
+      this.uwCamPos.z = THREE.MathUtils.clamp(this.uwCamPos.z, -120, 120);
 
       // Apply camera
       this.camera.position.copy(this.uwCamPos);
       const lookTarget = this.uwCamPos.clone().add(forward);
       this.camera.lookAt(lookTarget);
       this.camera.near = 0.1;
-      this.camera.far = 200;
+      this.camera.far = 400;
       this.camera.updateProjectionMatrix();
 
       // Update underwater scene
@@ -554,10 +704,7 @@ export class GlobeRenderer {
       this.camera.updateProjectionMatrix();
     }
 
-    // Fill light follows camera, intensity fades with distance
-    this.fillLight.position.copy(this.camera.position);
-    const fillIntensity = this.curDist < 200 ? 1.5 : Math.max(0, 1.5 - (this.curDist - 200) * 0.005);
-    this.fillLight.intensity = fillIntensity;
+    // No per-frame light updates needed — uniform ambient only
 
     // Update atmosphere
     this.atmo?.update(this.camera);
@@ -571,7 +718,27 @@ export class GlobeRenderer {
     // External callback
     this.onFrameCb?.(dt);
 
+    // 1. Render full scene directly — identical to pre-bloom pipeline
     this.renderer.render(this.scene, this.camera);
+
+    // 2. Bloom overlay — only glow objects, composited additively on top
+    if (this.bloomComposer && this.bloomOverlayMat && this.bloomOverlayScene && this.bloomOverlayCamera) {
+      const savedAlpha = this.renderer.getClearAlpha();
+      this.renderer.getClearColor(this._savedClearColor);
+      this.renderer.setClearColor(0x000000, 0);
+
+      this.hideNonBloom();
+      this.bloomComposer.render();
+      this.restoreVisibility();
+
+      this.renderer.setClearColor(this._savedClearColor, savedAlpha);
+
+      // Draw bloom texture on top of the canvas with additive blending
+      this.bloomOverlayMat.uniforms.tBloom.value = this.bloomComposer.renderTarget2.texture;
+      this.renderer.autoClear = false;
+      this.renderer.render(this.bloomOverlayScene, this.bloomOverlayCamera);
+      this.renderer.autoClear = true;
+    }
   };
 
   // ─── Resize ─────────────────────────────────────────────────────────────
@@ -583,6 +750,8 @@ export class GlobeRenderer {
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(w, h);
+    const dpr = this.renderer.getPixelRatio();
+    this.bloomComposer?.setSize(Math.round(w * dpr), Math.round(h * dpr));
   };
 
   // ─── Dispose ────────────────────────────────────────────────────────────
@@ -606,6 +775,10 @@ export class GlobeRenderer {
     el.removeEventListener('mousedown', this.onUwMouseDown);
     el.removeEventListener('mousemove', this.onUwMouseMove);
     el.removeEventListener('mouseup', this.onUwMouseUp);
+    el.removeEventListener('touchstart', this.onUwTouchStart);
+    el.removeEventListener('touchmove', this.onUwTouchMove);
+    el.removeEventListener('touchend', this.onUwTouchEnd);
+    el.removeEventListener('touchcancel', this.onUwTouchEnd);
     document.removeEventListener('keydown', this.onUwKeyDown);
     document.removeEventListener('keyup', this.onUwKeyUp);
 
@@ -614,6 +787,8 @@ export class GlobeRenderer {
     this.trailLayer.dispose();
     if (this.earth) { this.scene.remove(this.earth); }
     if (this.atmo) { this.scene.remove(this.atmo.rim); this.scene.remove(this.atmo.haze); }
+    this.bloomComposer?.dispose();
+    this.bloomOverlayMat?.dispose();
     this.renderer.dispose();
     el.remove();
   }

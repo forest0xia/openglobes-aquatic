@@ -46,12 +46,19 @@ export const speciesVertexShader = `
                   : anim > 2.5 && anim < 3.5 ? 0.8  // jellyfish
                   : 0.5;               // fish
 
-    // ── Swimming ──────────────────────────────────────────────────
-    float t = uTime + instancePhase;
+    // ── Per-instance scatter — spread creatures apart ───────────
+    // Scatter proportional to body size: large animals spread more
     vec3 normal = normalize(pos);
     vec3 tangent = normalize(cross(vec3(0.0, 1.0, 0.0), normal));
     if (length(tangent) < 0.001) tangent = normalize(cross(vec3(1.0, 0.0, 0.0), normal));
     vec3 bitangent = cross(normal, tangent);
+    float bodySize = max(instanceSize.x, instanceSize.y);
+    float scatter = 0.5 + bodySize * 0.7; // small fish ~0.6, whales ~1.5
+    pos += tangent * sin(instancePhase * 1.7) * scatter
+         + bitangent * cos(instancePhase * 2.3) * scatter;
+
+    // ── Swimming ──────────────────────────────────────────────────
+    float t = uTime + instancePhase;
 
     if (anim > 0.5 && anim < 1.5) {
       pos += tangent * sin(t * 0.4) * 0.2 + bitangent * sin(t * 0.15) * 0.12;
@@ -120,45 +127,23 @@ export const speciesFragmentShader = `
 
   void main() {
     vec4 texel = texture2D(uAtlas, vUV);
-    float dist = length(vQuadPos);
 
+    if (texel.a < 0.01) discard;
+
+    vec3 color = texel.rgb;
     float pulse = 0.6 + 0.4 * sin(uTime * 1.5 + vGlowColor.r * 20.0 + vGlowColor.g * 30.0);
     float glow = vGlowStrength * pulse;
 
-    // If texture has alpha → this is the body
-    if (texel.a > 0.05) {
-      vec3 color = texel.rgb;
-      // Additive glow tint on body
-      color += vGlowColor * glow * 0.4;
-      // Edge glow (where alpha transitions)
+    // Subtle color tint
+    color += vGlowColor * glow * 0.15;
+
+    // Coral fluorescence on body edges
+    if (vAnimType < 0.5) {
       float bodyEdge = 1.0 - smoothstep(0.05, 0.5, texel.a);
-      color += vGlowColor * bodyEdge * glow * 0.7;
-      color *= 1.0 + glow * 0.25;
-
-      // Coral extra fluorescence
-      if (vAnimType < 0.5) {
-        color = mix(color, vGlowColor * 2.0, bodyEdge * 0.35);
-      }
-
-      gl_FragColor = vec4(color, texel.a * vAlpha);
+      color = mix(color, vGlowColor * 2.0, bodyEdge * 0.35);
     }
-    // Outside body: radiant glow halo
-    else {
-      // Two-layer halo
-      float innerHalo = (1.0 - smoothstep(0.1, 0.3, dist)) * glow * 1.2;
-      float outerHalo = (1.0 - smoothstep(0.2, 0.5, dist)) * glow * 0.5;
-      float totalHalo = innerHalo + outerHalo;
 
-      if (totalHalo < 0.005) discard;
-
-      vec3 haloColor = vGlowColor * totalHalo;
-      if (vAnimType < 0.5) haloColor *= 2.0;
-      if (vAnimType > 2.5 && vAnimType < 3.5) {
-        haloColor *= 0.8 + 0.5 * sin(uTime * 2.5 + vGlowColor.b * 40.0);
-      }
-
-      gl_FragColor = vec4(haloColor, totalHalo * vAlpha);
-    }
+    gl_FragColor = vec4(color, texel.a * vAlpha);
   }
 `;
 
@@ -169,3 +154,4 @@ export const ANIM_CODE: Record<string, number> = {
   drifting: 3,
   darting: 4,
 };
+

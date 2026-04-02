@@ -68,12 +68,12 @@ export interface AtmosphereConfig {
 }
 
 const OCEAN_DEFAULTS: AtmosphereConfig = {
-  dayColor: '#3070FF',
-  twilightColor: '#1a3a6e',
-  fresnelLow: 0.73,
-  fresnelPow: 3.0,
-  hazeStrength: 0.3,
-  scale: 1.04,
+    dayColor: '#3070FF',      // 日侧颜色
+    twilightColor: '#1a3a6e', // 暗侧颜色
+    fresnelLow: 0.73,         // 光晕起始边缘
+    fresnelPow: 2.0,          // 光晕衰减曲线
+    hazeStrength: 0.5,        // 表面散射强度
+    scale: 1.01,              // 光晕球体大小 (1.04 = 比地球大4%)
 };
 
 export function createAtmosphere(
