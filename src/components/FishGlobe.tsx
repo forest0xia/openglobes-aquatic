@@ -14,7 +14,7 @@ import {
 import { OCEAN_CURRENTS, CURRENTS_DEFAULT_VISIBLE } from '../data/currents';
 import { GLOBE_RADIUS } from '../globe/coordUtils';
 import { loadOceanMask, isOcean } from '../utils/oceanMask';
-import { playHoverSound, playClickSound, getSoundLabel, startUnderwaterAmbient, stopUnderwaterAmbient } from '../audio/FishAudio';
+import { playHoverSound, playClickSound, getSoundLabel, startUnderwaterAmbient, stopUnderwaterAmbient, startBackgroundMusic } from '../audio/FishAudio';
 import type { TrailData } from '../globe/TrailLayer';
 
 const _hitPoint = new THREE.Vector3(); // reusable for route hover ray hit
@@ -328,6 +328,7 @@ export function FishGlobe() {
   const lastPointerRef = useRef({ x: 0, y: 0 });
   const isDraggingRef = useRef(false);
   const handlePointerDown = useCallback(() => {
+    startBackgroundMusic(); // starts on first interaction, no-op after
     isDraggingRef.current = true;
     // Hide tooltips during drag
     hideTooltip();

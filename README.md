@@ -4,7 +4,38 @@
 
 **Live:** [aquatic.openglobes.com](https://aquatic.openglobes.com)
 
+**水下直达:** [aquatic.openglobes.com/?v=uw](https://aquatic.openglobes.com/?v=uw)
+
 Part of [OpenGlobes](https://openglobes.com) — open-source 3D data globe visualizations.
+
+## Features
+
+### 3D Globe
+- 228种海洋生物按真实地理坐标分布
+- 物种 sprite 按 5 种动画模式游动（巡游、群游、悬停、漂浮、疾冲）
+- 81条洄游路线（带闪光流动效果）
+- 珊瑚选择性 bloom 光晕（UnrealBloomPass）
+- 2000+ 闪烁星空背景
+- 白天/夜晚主题切换
+
+### 沉浸式水下场景
+- 双击海面（仅限海洋区域）潜入水下 — NASA 海洋遮罩自动判断海/陆
+- 600×600 海底地形：Perlin noise 起伏 + 海底山脊/悬崖
+- 1000 个珊瑚/海葵装饰（80 个自然聚落），闪光 shader
+- 鱼类分左右朝向两组 InstancedMesh，围绕摄像机做圆周轨道游动
+- 鲸鱼、鲨鱼、海豚等大型生物始终出现
+- 动画水面折射光纹（从水底仰望可见）
+- 深海环境背景音乐 + 水下环境音效
+
+### 真实海洋声音
+- 13 个 NOAA 公共领域录音：座头鲸歌声、抹香鲸回声定位、宽吻海豚哨声等
+- 虎鲸、白鲸专属录音
+- 鱼类/虾类保留程序合成声音
+
+### 操控
+- **PC:** WASD 移动 + 鼠标拖拽环顾 + 虚拟摇杆
+- **手机:** 触摸旋转 + 左侧移动摇杆 + 右侧升降滑杆 + 「潜入水下」按钮
+- **URL 参数:** `?v=uw` 直接进入水下场景
 
 ## Development
 
@@ -12,10 +43,14 @@ Part of [OpenGlobes](https://openglobes.com) — open-source 3D data globe visua
 # Symlink data from ETL output
 ln -s ../openglobes-etl/output/aquatic data
 
-# Install and run (plain Vite + React, no Astro)
+# Install and run
 pnpm install
 pnpm dev
 ```
+
+### Sprite 朝向校准工具
+
+`docs/sprite-facing-tool.html` — 浏览器打开可逐个确认/修正 sprite 的左右朝向，导出 `facing.json`。
 
 ## Architecture
 
@@ -25,71 +60,59 @@ Custom rendering stack in `src/globe/`:
 
 | File | Purpose |
 |------|---------|
-| `GlobeRenderer.ts` | Scene, camera (custom spherical + exponential damping), single RAF loop, ACES tone mapping |
-| `EarthMesh.ts` | Textured sphere with bump/specular maps |
-| `AtmosphereShader.ts` | Dual-layer fresnel glow (BackSide rim + FrontSide haze) |
-| `SpeciesLayer.ts` | Single `InstancedMesh` for all ~1900 species sprites (1 draw call) |
-| `SpeciesShader.ts` | GLSL: billboard, 5 swim animations, body wave, bioluminescent glow |
-| `TrailLayer.ts` | Line2 animated migration trails |
-| `coordUtils.ts` | lat/lng → Three.js Vector3 (matches SphereGeometry UV) |
+| `GlobeRenderer.ts` | Scene, camera, RAF loop, ACES tone mapping, selective bloom pipeline, underwater mode |
+| `EarthMesh.ts` | Textured sphere with bump maps |
+| `AtmosphereShader.ts` | Dual-layer fresnel glow |
+| `SpeciesLayer.ts` | `InstancedMesh` for all species sprites (1 draw call) + coral bloom glow mesh |
+| `SpeciesShader.ts` | GLSL: billboard, 5 swim animations, body wave, scatter offset |
+| `TrailLayer.ts` | Line2 migration trails + shimmer highlight |
+| `UnderwaterScene.ts` | Seabed, fish (left/right groups), coral decorations, particles, lighting |
+| `UnderwaterShader.ts` | Seabed terrain displacement, fish orbit, coral sparkle, surface caustics |
+| `constants.ts` | Shared constants (BLOOM_LAYER) |
+| `coordUtils.ts` | lat/lng → Three.js Vector3 |
 
 ### Data model
 
-Two JSON files loaded once (~300KB total):
+| File | Contents |
+|------|----------|
+| `final.json` | 228 species, 1000+ viewing spots, bilingual names |
+| `hotspots.json` | 25 marine hotspots |
+| `migration_routes.json` | 81 migration corridors |
+| `sprites/spritesheet-0.webp` | 450 species sprites atlas (~3MB) |
+| `sprites/spritesheet.json` | Atlas manifest (UV coordinates) |
+| `facing.json` | Sprite facing direction (left/right per species) |
+| `textures/ocean-mask.png` | NASA land/ocean mask for dive restriction |
+| `audio/*.mp3` | 13 NOAA marine animal recordings |
 
-- **`final.json`** — 228 species (50 star / 80 ecosystem / 70 surprise + 14 corals / 14 anemones+sponges), 1000+ viewing spots, bilingual names (中文/English), display config
-- **`hotspots.json`** — 25 marine hotspots
-- **`migration_routes.json`** — 81 migration corridors with Chinese names + descriptions
+### Audio
 
-### Species rendering
-
-All species in ONE `InstancedMesh` (~1900 instances, 1 draw call):
-
-| Feature | Implementation |
-|---------|---------------|
-| Position | True geographic lat/lng, never offset |
-| Animation | 5 types in vertex shader: `slow_cruise`, `schooling`, `hovering`, `drifting`, `darting` |
-| Body wave | Sinusoidal S-curve along spine (amplitude: head=0, tail=0.35) |
-| Bioluminescence | Per-instance glow color, radiant halo (1.8x quad), coral fluorescence |
-| Corals | `static` animation, fluorescent colors (电绿/热粉/亮橙/紫蓝), `tiny` scale |
-| Spritesheet | Single atlas (~3MB WebP), UV per-instance |
-| Highlight | Smooth ease-out cubic scale animation on hover/click |
-
-### UI (Chinese-first)
-
-- All labels, tooltips, species names in Chinese
-- Hover tooltip: DOM-managed (zero React re-renders)
-- Detail panel: species info + clickable viewing spots
-- Controls: 图层叠加, 地理标签, 地球贴图, 夜间模式
+| Category | Source | Count |
+|----------|--------|-------|
+| 鲸歌 (whale song) | NOAA recordings | 3 variants |
+| 回声定位 (whale clicks) | NOAA recordings | 2 variants |
+| 海豚哨声/咔嗒 | NOAA recordings | 4 variants |
+| 虎鲸/白鲸 | NOAA recordings | 2 species-specific |
+| 海豹 | NOAA recordings | 2 variants |
+| 鱼类/虾类 | Web Audio synthesis | 7 categories |
+| 背景音乐 | Synthesized deep-sea drone | Looping |
+| 水下环境音 | Synthesized ocean rumble | Looping |
 
 ### Performance
 
-- **1 draw call** for all species (InstancedMesh)
-- **Custom camera** with split exponential damping (rotation instant, zoom smooth)
+- **1 draw call** for all globe species (InstancedMesh)
+- **2 draw calls** for underwater fish (left + right facing groups)
+- **Selective bloom** — only coral glow objects go through UnrealBloomPass
+- **Custom camera** with split exponential damping
 - **Zero React re-renders** on hover (DOM-managed tooltips)
 - **Tab visibility pause** — stops RAF when tab hidden
-- **Drag skip** — no hit-testing during globe rotation
-- **No three-globe** — removed heavy dependency (~220KB + d3 + internal RAF loop)
-- **No Astro** — plain Vite + React (~1s dev cold start)
-
-## Data
-
-Symlinked from `../openglobes-etl/output/aquatic/` — never committed to this repo.
-
-| File | Contents |
-|------|----------|
-| `final.json` | 228 species, 1000+ viewing spots, Chinese names |
-| `hotspots.json` | 25 marine hotspots |
-| `sprites/spritesheet-0.webp` | 450 species sprites in one atlas (~3MB) |
-| `sprites/spritesheet.json` | Atlas manifest (UV coordinates) |
-| `search.json` | Search index (Chinese + English) |
-| `migration_routes.json` | 81 migration corridors |
 
 ## Tech stack
 
 - **Vite** + **React 19** + **TypeScript**
 - **Three.js 0.183** (direct, no wrappers)
-- **Custom GLSL shaders** (species billboard + glow)
+- **Custom GLSL shaders** (species, underwater terrain, coral sparkle, surface caustics)
+- **UnrealBloomPass** (selective, additive overlay)
+- **Web Audio API** (NOAA recordings + synthesis)
 - **Tailwind 4** for UI styling
 
 ## Data sources
@@ -97,6 +120,8 @@ Symlinked from `../openglobes-etl/output/aquatic/` — never committed to this r
 - [OBIS](https://obis.org) (CC-BY 4.0)
 - [FishBase](https://www.fishbase.se) (CC-BY-NC 4.0)
 - [GBIF](https://www.gbif.org) (CC0 / CC-BY 4.0)
+- [NOAA Fisheries](https://www.fisheries.noaa.gov/national/science-data/sounds-ocean) (Public Domain)
+- [NASA Blue Marble](https://visibleearth.nasa.gov) (Public Domain)
 
 ## License
 

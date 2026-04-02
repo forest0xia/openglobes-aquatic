@@ -700,15 +700,29 @@ function tryPlayRecording(
   return false;
 }
 
-/** Play an audio file through the Web Audio graph. */
+/** Currently playing species sound — stop before starting a new one. */
+let activeSpeciesSource: AudioBufferSourceNode | null = null;
+
+/** Play an audio file through the Web Audio graph. Stops previous playback. Max 5 seconds. */
 function playAudioFile(ctx: AudioContext, dest: AudioNode, url: string): void {
-  // Fire-and-forget async playback
+  // Stop any previous species sound
+  if (activeSpeciesSource) {
+    try { activeSpeciesSource.stop(); } catch {}
+    activeSpeciesSource = null;
+  }
+
   loadAudioBuffer(ctx, url).then((buf) => {
     if (!buf) return;
     const source = ctx.createBufferSource();
     source.buffer = buf;
     source.connect(dest);
-    source.start();
+    // Limit playback to 5 seconds max
+    const duration = Math.min(buf.duration, 5);
+    source.start(0, 0, duration);
+    activeSpeciesSource = source;
+    source.onended = () => {
+      if (activeSpeciesSource === source) activeSpeciesSource = null;
+    };
   });
 }
 
@@ -815,8 +829,72 @@ export function getSoundLabel(species: Species): string {
   return unique.join(' / ');
 }
 
+// ---------------------------------------------------------------------------
+// Background music — deep-sea ambient drone, always playing
+// ---------------------------------------------------------------------------
+
+let bgmSource: AudioBufferSourceNode | null = null;
+let bgmGain: GainNode | null = null;
+
+/** Start deep-sea background music (synthesized ambient drone). Call on first user interaction. */
+export function startBackgroundMusic(): void {
+  const ctx = getAudioCtx();
+  if (bgmSource) return;
+
+  // Synthesize a 10-second looping deep-sea ambient pad
+  const duration = 10;
+  const sr = ctx.sampleRate;
+  const len = Math.floor(sr * duration);
+  const buffer = ctx.createBuffer(2, len, sr); // stereo
+  const L = buffer.getChannelData(0);
+  const R = buffer.getChannelData(1);
+
+  for (let i = 0; i < len; i++) {
+    const t = i / sr;
+    // Deep tonal pad — layered low-frequency drones
+    const drone1 = Math.sin(t * 55 * Math.PI * 2) * 0.12;   // A1 ≈ 55Hz
+    const drone2 = Math.sin(t * 82.5 * Math.PI * 2) * 0.08;  // E2 ≈ 82Hz (fifth)
+    const drone3 = Math.sin(t * 110 * Math.PI * 2) * 0.05;   // A2 ≈ 110Hz (octave)
+    // Slow ethereal shimmer
+    const shimmer = Math.sin(t * 220 * Math.PI * 2) * Math.sin(t * 0.3 * Math.PI * 2) * 0.03;
+    // Very soft filtered noise (ocean hiss)
+    const noise = (Math.random() * 2 - 1) * 0.02;
+    // Slow breathing modulation
+    const breath = 0.7 + 0.3 * Math.sin(t * 0.15 * Math.PI * 2);
+    // Stereo: slight phase offset for width
+    const val = (drone1 + drone2 + drone3 + shimmer + noise) * breath;
+    L[i] = val;
+    R[i] = (drone1 + drone2 + drone3 + shimmer * 0.7 + noise) * breath;
+  }
+
+  bgmGain = ctx.createGain();
+  bgmGain.gain.value = 0.08; // very quiet background
+  bgmGain.connect(getMasterGain());
+
+  const filter = ctx.createBiquadFilter();
+  filter.type = 'lowpass';
+  filter.frequency.value = 300;
+  filter.connect(bgmGain);
+
+  bgmSource = ctx.createBufferSource();
+  bgmSource.buffer = buffer;
+  bgmSource.loop = true;
+  bgmSource.connect(filter);
+  bgmSource.start();
+}
+
+/** Stop background music. */
+export function stopBackgroundMusic(): void {
+  if (bgmSource) {
+    try { bgmSource.stop(); } catch {}
+    bgmSource = null;
+  }
+  if (bgmGain) { bgmGain = null; }
+}
+
 /** Dispose audio context (cleanup). */
 export function disposeAudio(): void {
+  stopBackgroundMusic();
   if (audioCtx) {
     audioCtx.close();
     audioCtx = null;
