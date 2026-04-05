@@ -16,6 +16,7 @@ import { GLOBE_RADIUS } from '../globe/coordUtils';
 import { loadOceanMask, isOcean } from '../utils/oceanMask';
 import { playHoverSound, playClickSound, getSoundLabel, startUnderwaterAmbient, stopUnderwaterAmbient, startBackgroundMusic } from '../audio/FishAudio';
 import type { TrailData } from '../globe/TrailLayer';
+import { getSpeciesSize, formatLength } from '../data/speciesSizes';
 
 const _hitPoint = new THREE.Vector3(); // reusable for route hover ray hit
 const _uwRayOrigin = new THREE.Vector3();
@@ -28,7 +29,7 @@ const _uwRayDir = new THREE.Vector3();
 // species sprites, migration trails, search, hover tooltips, and detail panel.
 // ---------------------------------------------------------------------------
 
-export function FishGlobe() {
+export function FishGlobe({ onOpenEncyclopedia }: { onOpenEncyclopedia?: () => void }) {
   const globe = useGlobe();
   const { species, hotspots, loading: dataLoading } = useSpeciesData();
 
@@ -565,6 +566,16 @@ export function FishGlobe() {
         >
           夜间模式
         </button>
+        {onOpenEncyclopedia && (
+          <button
+            type="button"
+            className="og-chip"
+            onClick={onOpenEncyclopedia}
+            style={{ fontSize: 11 }}
+          >
+            鱼类图鉴
+          </button>
+        )}
         {!dataLoading && (
           <span
             style={{
@@ -690,6 +701,101 @@ export function FishGlobe() {
                 🔊 {getSoundLabel(selectedSpecies)}
               </button>
             </div>
+
+            {/* Sprite image at natural size */}
+            {(() => {
+              const spriteName = selectedSpecies.sprite.replace('.png', '');
+              return (
+                <div style={{
+                  marginBottom: 16, padding: 12,
+                  background: 'var(--og-bg-surface)', borderRadius: 'var(--og-radius-md)',
+                  border: '1px solid var(--og-border)',
+                  display: 'flex', flexDirection: 'column', alignItems: 'center',
+                }}>
+                  <img
+                    src={`/data/sprites/${spriteName}.png`}
+                    alt={selectedSpecies.nameZh}
+                    className="fish-sprite"
+                    style={{
+                      maxWidth: '100%',
+                      height: 'auto',
+                      imageRendering: 'auto',
+                    }}
+                  />
+                  {(() => {
+                    const sz = getSpeciesSize(selectedSpecies.nameZh, selectedSpecies.display.scale);
+                    return (
+                      <div style={{
+                        marginTop: 8, fontFamily: 'var(--og-font-mono)', fontSize: 11,
+                        color: 'var(--og-text-secondary)', textAlign: 'center',
+                      }}>
+                        平均体长 {formatLength(sz.lengthCm)} · 体宽 {formatLength(sz.widthCm)}
+                      </div>
+                    );
+                  })()}
+                </div>
+              );
+            })()}
+
+            {/* Size comparison with human */}
+            {(() => {
+              const sz = getSpeciesSize(selectedSpecies.nameZh, selectedSpecies.display.scale);
+              const HUMAN_HEIGHT_CM = 175;
+              const maxDim = Math.max(sz.lengthCm, HUMAN_HEIGHT_CM);
+              const barW = 260; // available width for comparison
+              const humanH = (HUMAN_HEIGHT_CM / maxDim) * barW * 0.6;
+              const fishH = (sz.lengthCm / maxDim) * barW * 0.6;
+              return (
+                <div style={{
+                  marginBottom: 16, padding: 12,
+                  background: 'var(--og-bg-surface)', borderRadius: 'var(--og-radius-md)',
+                  border: '1px solid var(--og-border)',
+                }}>
+                  <div className="og-section-label" style={{ marginBottom: 8 }}>
+                    与人类大小对比
+                  </div>
+                  <div style={{
+                    display: 'flex', alignItems: 'flex-end', gap: 16,
+                    justifyContent: 'center', minHeight: 80,
+                  }}>
+                    {/* Human silhouette */}
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                      <svg width={Math.max(20, humanH * 0.3)} height={Math.max(30, humanH)} viewBox="0 0 40 100" fill="none">
+                        <circle cx="20" cy="8" r="7" fill="rgba(160,180,210,0.5)" />
+                        <rect x="14" y="16" width="12" height="32" rx="4" fill="rgba(160,180,210,0.4)" />
+                        <rect x="8" y="20" width="8" height="4" rx="2" fill="rgba(160,180,210,0.35)" />
+                        <rect x="24" y="20" width="8" height="4" rx="2" fill="rgba(160,180,210,0.35)" />
+                        <rect x="14" y="48" width="5" height="28" rx="2" fill="rgba(160,180,210,0.4)" />
+                        <rect x="21" y="48" width="5" height="28" rx="2" fill="rgba(160,180,210,0.4)" />
+                        <rect x="12" y="74" width="7" height="5" rx="2" fill="rgba(160,180,210,0.35)" />
+                        <rect x="21" y="74" width="7" height="5" rx="2" fill="rgba(160,180,210,0.35)" />
+                      </svg>
+                      <span style={{ fontFamily: 'var(--og-font-mono)', fontSize: 9, color: 'var(--og-text-tertiary)', marginTop: 4 }}>
+                        人类 1.75m
+                      </span>
+                    </div>
+                    {/* Fish size bar */}
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                      <div style={{
+                        width: Math.max(16, Math.min(barW * 0.6, fishH)),
+                        height: Math.max(8, Math.min(barW * 0.3, fishH * 0.4)),
+                        background: `linear-gradient(135deg, ${selectedSpecies.display.color}44, ${selectedSpecies.display.color}88)`,
+                        border: `1px solid ${selectedSpecies.display.color}66`,
+                        borderRadius: 'var(--og-radius-sm)',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      }}>
+                        <span style={{ fontFamily: 'var(--og-font-mono)', fontSize: 9, color: 'var(--og-text-primary)' }}>
+                          {formatLength(sz.lengthCm)}
+                        </span>
+                      </div>
+                      <span style={{ fontFamily: 'var(--og-font-mono)', fontSize: 9, color: 'var(--og-text-tertiary)', marginTop: 4 }}>
+                        {selectedSpecies.nameZh}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Viewing spots */}
             <div
