@@ -76,7 +76,9 @@ export const speciesVertexShader = `
     vec4 mvPos = modelViewMatrix * vec4(pos, 1.0);
     vec2 size = instanceSize;
 
-    float minSize = 0.4 + smoothstep(150.0, 400.0, camDist) * 0.8;
+    // Gentle minimum so distant tiny fish don't vanish, but never inflate
+    // sprites beyond their authored pixel size (prevents blurriness).
+    float minSize = 0.15 + smoothstep(200.0, 500.0, camDist) * 0.25;
     size = max(size, vec2(minSize));
 
     if (uHighlightIdx >= 0 && gl_InstanceID == uHighlightIdx) {

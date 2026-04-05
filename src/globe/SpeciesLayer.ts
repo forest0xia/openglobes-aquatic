@@ -21,8 +21,8 @@ const SCALE_MAP: Record<string, number> = {
   tiny: 0.6,
   small: 0.8,
   medium: 1.0,
-  large: 1.2,
-  massive: 1.5,
+  large: 0.7,
+  massive: 0.8,
 };
 
 const TIER_MULT: Record<string, number> = {
@@ -34,6 +34,19 @@ const TIER_MULT: Record<string, number> = {
 /** Per-species scale overrides (multiplier on final size). */
 const SPECIES_SCALE: Record<string, number> = {
   '南极磷虾': 0.33,
+  // Large marine animals — keep small to avoid blurry sprites
+  '蓝鲸': 0.5,
+  '座头鲸': 0.5,
+  '灰鲸': 0.5,
+  '虎鲸': 0.55,
+  '抹香鲸': 0.5,
+  '鲸鲨': 0.55,
+  '大白鲨': 0.6,
+  '姥鲨': 0.55,
+  '双髻鲨': 0.6,
+  '虎鲨': 0.6,
+  '蝠鲼': 0.55,
+  '翻车鲀': 0.6,
 };
 
 /** Sprite pixel size to world-unit conversion factor. */
@@ -174,27 +187,39 @@ export class SpeciesLayer {
 
     const resolved: Resolved[] = [];
 
-    // Species that get extra clones packed tightly together
-    const SWARM_MULT: Record<string, number> = { '南极磷虾': 3 };
+    // Species that get extra clones packed tightly together.
+    // Schooling/small species get more copies for visual density.
+    const SWARM_MULT: Record<string, number> = { '南极磷虾': 5 };
+    const SCHOOLING_SWARM = 3; // default swarm count for schooling-animation species
     // Species that have too many spots — halve them
     const HALVE_SPOTS = new Set(['大西洋鲟', '美洲西鲱', '北梭鱼', '斑纹银汉鱼']);
+    // Large/massive species: only 1 spot per species (avoid clutter)
+    const LARGE_SCALES = new Set(['large', 'massive']);
 
     // 1. Species viewing spots
     for (const sp of species) {
       const spriteName = sp.sprite.replace('.png', '');
       const rect = manifest.sprites[spriteName];
       if (!rect) continue;
-      const copies = SWARM_MULT[sp.nameZh] ?? 1;
+
+      const isLarge = LARGE_SCALES.has(sp.display.scale);
+      const isSchooling = sp.display.animation === 'schooling';
+      // Large species: explicit override or 1. Schooling small fish: swarm.
+      const copies = SWARM_MULT[sp.nameZh]
+        ?? (isSchooling && !isLarge ? SCHOOLING_SWARM : 1);
       const halve = HALVE_SPOTS.has(sp.nameZh);
       let spotIdx = 0;
 
-      for (const spot of sp.viewingSpots) {
+      // Large/massive species: only use the first (best) viewing spot
+      const spots = isLarge ? sp.viewingSpots.slice(0, 1) : sp.viewingSpots;
+
+      for (const spot of spots) {
         if (halve && spotIdx++ % 2 === 1) continue;
         resolved.push({ sp, spot, rect });
         // Extra clones with tiny lat/lng jitter (tight cluster, same area)
         for (let c = 1; c < copies; c++) {
           const angle = (c / copies) * Math.PI * 2 + spot.lat * 0.1;
-          const jitter = 0.3; // ~0.3° ≈ 33 km — tight cluster
+          const jitter = isSchooling ? 0.15 : 0.3; // schooling fish cluster tighter
           resolved.push({
             sp, rect,
             spot: { ...spot, lat: spot.lat + Math.sin(angle) * jitter, lng: spot.lng + Math.cos(angle) * jitter },
